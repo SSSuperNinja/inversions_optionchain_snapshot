@@ -1,15 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  ShellBar, 
-  Card,
-  CardHeader,
-  Icon,
-  // Nuevos componentes para la barra de herramientas
-  Button,
-  Input,
-  FlexBox,
-  FlexBoxJustifyContent,
-  FlexBoxAlignItems
+  ShellBar, Card, CardHeader, Icon, Button, Input, 
+  FlexBox, FlexBoxJustifyContent, FlexBoxAlignItems
 } from '@ui5/webcomponents-react';
 import '@ui5/webcomponents-icons/dist/AllIcons.js';
 
@@ -19,6 +11,10 @@ import { TreeTable } from './components/TreeTable';
 export default function App() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // Estado de selección y edición
+  const [selectedRow, setSelectedRow] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -36,12 +32,63 @@ export default function App() {
     }
   };
 
+  // Manejamos la selección (bloqueamos si se está editando para no perder cambios)
+  const handleRowSelect = (row) => {
+      if (!isEditing) {
+          console.log("Fila seleccionada:", row);
+          setSelectedRow(row);
+      }
+  };
+
+  // Activar modo edición (Botón Toolbar)
+  const handleEdit = () => {
+      if (selectedRow) {
+          setIsEditing(true); 
+      }
+  };
+
+  // Guardar cambios (Botón Fila)
+  const handleSave = async (updatedData) => {
+    console.log("💾 Iniciando guardado con datos:", updatedData);
+    
+    const success = await TreeTableService.updateRow(updatedData);
+    
+    if (success) {
+        console.log("✅ Guardado exitoso, recargando datos...");
+        setIsEditing(false);
+        setSelectedRow(null);
+        
+        // Pequeño delay para asegurar que el backend procesó la actualización
+        setTimeout(() => {
+            loadData();
+        }, 500);
+        
+    } else {
+        console.log("❌ Falló el guardado");
+        // Opcional: mantener el modo edición si falló
+        // setIsEditing(false);
+        }
+    };
+
+    const handleCancel = () => {
+    setIsEditing(false);
+    setSelectedRow(null); // Limpiar selección
+    // No recargar datos inmediatamente, solo salir del modo edición
+    };
+    const handleDelete = () => {
+      if (selectedRow) {
+          if(confirm(`¿Seguro que deseas borrar ${selectedRow.hierarchyNode}?`)) {
+              alert("Lógica de borrado pendiente (a implementar en backend)");
+          }
+      }
+  };
+
   return (
     <div style={{ height: "100vh", width: "100vw", display: "flex", flexDirection: "column", background: "#f5f6f7" }}>
       
       <ShellBar
         primaryTitle="ChainOptions"
-        secondaryTitle="Análisis de Cadena (Vista Completa)"
+        secondaryTitle="Análisis de Cadena (Edición en Línea)"
         logo={<Icon name="chain-link" />}
         profile={<Icon name="customer" />}
       />
@@ -57,29 +104,72 @@ export default function App() {
             }
             style={{ height: "100%", width: "100%", display: "flex", flexDirection: "column" }}
         >
-            {/* --- BARRA DE HERRAMIENTAS --- */}
+            {/* Toolbar Dinámico */}
             <FlexBox 
                 justifyContent={FlexBoxJustifyContent.SpaceBetween} 
                 alignItems={FlexBoxAlignItems.Center}
                 style={{ padding: "0.5rem 1rem", borderBottom: "1px solid #e5e5e5" }}
             >
-                {/* Grupo de Acciones (Izquierda) */}
                 <FlexBox style={{ gap: "0.5rem" }}>
-                    <Button icon="add" design="Emphasized">Agregar</Button>
-                    <Button icon="delete" design="Transparent" style={{ color: '#bb0000' }}>Borrar</Button>
+                    {/* Muestra botones distintos dependiendo si estás editando o no */}
+                    {isEditing ? (
+                        <>
+                            <Button 
+                                icon="save" 
+                                design="Emphasized" 
+                                onClick={() => document.getElementById('btn-save-internal')?.click()}
+                                tooltip="Guardar cambios de la fila actual"
+                            >
+                                Guardar
+                            </Button>
+                            <Button 
+                                icon="cancel" 
+                                design="Transparent" 
+                                onClick={handleCancel}
+                            >
+                                Cancelar
+                            </Button>
+                        </>
+                    ) : (
+                        <>
+                            <Button icon="add" design="Emphasized">Agregar</Button>
+                            <Button 
+                                icon="edit" 
+                                disabled={!selectedRow} 
+                                onClick={handleEdit}
+                            >
+                                Editar
+                            </Button>
+                            <Button 
+                                icon="delete" 
+                                design="Transparent" 
+                                style={{ color: selectedRow ? '#bb0000' : 'inherit' }}
+                                disabled={!selectedRow} 
+                                onClick={handleDelete}
+                            >
+                                Borrar
+                            </Button>
+                        </>
+                    )}
                 </FlexBox>
 
-                {/* Buscador (Derecha) */}
                 <div style={{ width: "300px" }}>
-                    <Input icon={<Icon name="search" />} placeholder="Buscar ID o Underlying..." />
+                    <Input icon={<Icon name="search" />} placeholder="Buscar..." disabled={isEditing} />
                 </div>
             </FlexBox>
 
-            {/* --- TABLA --- */}
+            {/* Tabla */}
             <div style={{ flexGrow: 1, overflow: "hidden" }}>
                 <TreeTable 
                     data={data} 
                     loading={loading} 
+                    onRowSelect={handleRowSelect}
+                    
+                    // Props para controlar la edición desde App
+                    isEditing={isEditing}
+                    selectedRowId={selectedRow?.id}
+                    onSave={handleSave}
+                    onCancel={handleCancel}
                 />
             </div>
         </Card>
