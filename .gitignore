@@ -1,0 +1,38 @@
+# --- Dependencias (NUNCA subir) ---
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# --- Variables de Entorno (SECRETOS) ---
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+backend/.env
+
+# --- Archivos de Build/Dist (Se generan solos) ---
+dist/
+build/
+backend/dist/
+
+# --- Logs y Archivos de Sistema ---
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
+
+# --- Configuración local de IDEs ---
+.vscode/
+.idea/
+*.suo
+*.ntvs
+*.njsproj
+*.sln
+*.sw?
+
+# --- Dependencias (NUNCA subir) ---
+node_modules/
+frontend/node_modules/
+backend/node_modules/

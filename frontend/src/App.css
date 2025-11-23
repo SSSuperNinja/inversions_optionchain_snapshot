@@ -1,0 +1,8 @@
+/* Reset básico para asegurar que la app ocupe toda la pantalla */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: "72", "72full", Arial, Helvetica, sans-serif; /* Fuente oficial de SAP */
+  background-color: #f5f6f7; /* Color de fondo Fiori */
+}
