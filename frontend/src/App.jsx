@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, selectedRowId } from 'react';
 import { 
   ShellBar, Card, CardHeader, Icon, Button, Input, 
   FlexBox, FlexBoxJustifyContent, FlexBoxAlignItems
@@ -14,6 +14,9 @@ export default function App() {
   // Estado de selección y edición
   const [selectedRow, setSelectedRow] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
+
+  // Seccion de busqueda
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     loadData();
@@ -91,6 +94,89 @@ const handleSave = async (updatedData) => {
       }
   };
 
+  //busqueda
+  // Manejador para la búsqueda
+    const handleSearch = (e) => {
+    setSearchTerm(e.target.value);
+    };
+
+    const filterData = (data, searchTerm) => {
+  if (!searchTerm.trim()) return data;
+  
+  const lowercasedSearch = searchTerm.toLowerCase().trim();
+  
+  const filterNode = (node) => {
+    // Verificar si este nodo coincide con la búsqueda
+    const nodeMatches = Object.values(node).some(value => 
+      value != null && 
+      String(value).toLowerCase().includes(lowercasedSearch)
+    );
+    
+    // Si es un padre, también verificar sus hijos
+    if (node.subRows && node.subRows.length > 0) {
+      const filteredSubRows = node.subRows.filter(subRow => 
+        Object.values(subRow).some(value => 
+          value != null && 
+          String(value).toLowerCase().includes(lowercasedSearch)
+        )
+      );
+      
+      // Si el padre coincide O tiene hijos que coinciden, incluirlo
+      if (nodeMatches || filteredSubRows.length > 0) {
+        return {
+          ...node,
+          subRows: nodeMatches ? node.subRows : filteredSubRows
+        };
+      }
+      return null;
+    }
+    
+    // Para hojas, solo devolver si coincide
+    return nodeMatches ? node : null;
+  };
+  
+  return data.map(filterNode).filter(Boolean);
+};
+
+// En App.jsx - versión optimizada
+const filteredData = useMemo(() => {
+  if (!searchTerm.trim()) return data;
+  
+  const lowercasedSearch = searchTerm.toLowerCase().trim();
+  
+  return data
+    .map(parent => {
+      const searchableFields = [
+        'snapshot_id', 'underlying_id', 'option_id', 'hierarchyNode',
+        'strike', 'type', 'right', 'description'
+      ];
+      
+      // Buscar en campos específicos para mejor performance
+      const parentMatches = searchableFields.some(field => 
+        parent[field] != null && 
+        String(parent[field]).toLowerCase().includes(lowercasedSearch)
+      );
+      
+      const matchingChildren = parent.subRows ? parent.subRows.filter(child => 
+        searchableFields.some(field => 
+          child[field] != null && 
+          String(child[field]).toLowerCase().includes(lowercasedSearch)
+        )
+      ) : [];
+      
+      if (parentMatches || matchingChildren.length > 0) {
+        return {
+          ...parent,
+          subRows: parentMatches ? parent.subRows : matchingChildren
+        };
+      }
+      
+      return null;
+    })
+    .filter(Boolean);
+}, [data, searchTerm]);
+    
+
   return (
     <div style={{ height: "100vh", width: "100vw", display: "flex", flexDirection: "column", background: "#f5f6f7" }}>
       
@@ -163,22 +249,21 @@ const handleSave = async (updatedData) => {
                 </FlexBox>
 
                 <div style={{ width: "300px" }}>
-                    <Input icon={<Icon name="search" />} placeholder="Buscar..." disabled={isEditing} />
+                <Input  icon={<Icon name="search" />} placeholder="Buscar..." disabled={isEditing}value={searchTerm} onChange={handleSearch}
+/>
                 </div>
             </FlexBox>
 
             {/* Tabla */}
             <div style={{ flexGrow: 1, overflow: "hidden" }}>
                 <TreeTable 
-                    data={data} 
-                    loading={loading} 
-                    onRowSelect={handleRowSelect}
-                    
-                    // Props para controlar la edición desde App
-                    isEditing={isEditing}
-                    selectedRowId={selectedRow?.id}
-                    onSave={handleSave}
-                    onCancel={handleCancel}
+                data={filteredData}  // ← Cambia esto
+                loading={loading} 
+                onRowSelect={handleRowSelect}
+                isEditing={isEditing}
+                selectedRowId={selectedRowId}
+                onSave={handleSave}
+                onCancel={handleCancel}
                 />
             </div>
         </Card>
