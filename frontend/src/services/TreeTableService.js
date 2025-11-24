@@ -24,8 +24,15 @@ const cleanRowData = (row) => {
         right: row.right || undefined, // ← ESTA ES LA LÍNEA CLAVE
         
         // Campos de fecha
-        ts: row.ts || undefined,
-        expiration: row.expiration || undefined,
+        ts: row.ts ? (() => {
+            try {
+                const date = new Date(row.ts);
+                return !isNaN(date.getTime()) ? date.toISOString() : undefined;
+            } catch (error) {
+                console.error('Error convirtiendo ts a ISO:', error);
+                return undefined;
+            }
+        })() : undefined,
         
         // IDs
         snapshot_id: row.snapshot_id != null ? Number(row.snapshot_id) : undefined,
@@ -34,7 +41,7 @@ const cleanRowData = (row) => {
     };
 
     // Limpiar campos undefined/null
-    Object.keys(cleanData).forEach(key => {
+        Object.keys(cleanData).forEach(key => {
         if (cleanData[key] === undefined || cleanData[key] === null) {
             delete cleanData[key];
         }

@@ -6,7 +6,8 @@ import {
   Button, 
   ComboBox, 
   ComboBoxItem, 
-  DatePicker 
+  DatePicker,
+  DateTimePicker 
 } from '@ui5/webcomponents-react';
 import '@ui5/webcomponents-icons/dist/AllIcons.js';
 
@@ -89,7 +90,7 @@ const TypeComboBox = React.memo(({ value, onChange }) => {
   );
 });
 
-// NUEVO: Componente DatePicker para Expiración - CORREGIDO
+// Componente DatePicker para Expiración - CORREGIDO
 const ExpirationDatePicker = React.memo(({ value, onChange }) => {
   const [internalValue, setInternalValue] = useState('');
 
@@ -113,18 +114,13 @@ const ExpirationDatePicker = React.memo(({ value, onChange }) => {
   }, [value]);
 
   const handleChange = (e) => {
-    // UI5 DatePicker devuelve la fecha en formato "Dec 25, 2026"
-    // Necesitamos convertirla a un formato que podamos usar
     const rawDate = e.target.value;
     console.log('DatePicker cambio (raw):', rawDate);
     
     if (rawDate) {
       try {
-        // CORRECCIÓN: Usar el formato de UI5 directamente
-        // UI5 usa el formato del navegador, pero podemos usar new Date()
         const date = new Date(rawDate);
         if (!isNaN(date.getTime())) {
-          // Convertir a formato ISO con hora fija
           const isoDate = new Date(Date.UTC(
             date.getFullYear(),
             date.getMonth(),
@@ -153,7 +149,6 @@ const ExpirationDatePicker = React.memo(({ value, onChange }) => {
     }
   };
 
-  // Obtener placeholder
   const getPlaceholder = () => {
     if (value) {
       try {
@@ -177,6 +172,53 @@ const ExpirationDatePicker = React.memo(({ value, onChange }) => {
     </div>
   );
 });
+
+// Componente DateTimePicker para el campo ts (padres) - CORREGIDO
+const TimestampDateTimePicker = React.memo(({ value, onChange }) => {
+  const [internalValue, setInternalValue] = useState('');
+
+  // Sincronizar cuando el valor externo cambia
+  useEffect(() => {
+    if (value) {
+      try {
+        const date = new Date(value);
+        if (!isNaN(date.getTime())) {
+          // Formatear para UI5 DateTimePicker (YYYY-MM-DDTHH:mm:ss.sssZ)
+          const isoString = date.toISOString();
+          setInternalValue(isoString);
+        }
+      } catch (error) {
+        console.error('Error parsing timestamp:', error);
+      }
+    }
+  }, [value]);
+
+  const handleChange = (e) => {
+    // CORRECCIÓN: Usar e.detail.value que contiene el valor en formato ISO
+    const selectedDateTime = e.detail.value;
+    console.log('TimestampDateTimePicker cambio (detail):', selectedDateTime);
+    
+    setInternalValue(selectedDateTime);
+    
+    if (selectedDateTime && onChange) {
+      // UI5 DateTimePicker ya devuelve el formato ISO en e.detail.value
+      onChange(selectedDateTime);
+    } else if (onChange) {
+      onChange(null);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+      <DateTimePicker
+        value={internalValue}
+        onChange={handleChange}
+        style={{ width: '90%' }}
+        placeholder="Seleccionar fecha y hora..."
+      />
+    </div>
+  );
+});
 const TreeTable = ({ data, loading, onRowSelect, isEditing, selectedRowId, onSave, onCancel }) => {
   const editValuesRef = useRef({});
   const [refresh, setRefresh] = useState(0);
@@ -186,11 +228,27 @@ const TreeTable = ({ data, loading, onRowSelect, isEditing, selectedRowId, onSav
         editValuesRef.current = {};
         setRefresh(prev => prev + 1);
     }
-  }, [isEditing]);
+    
+    // Cleanup function
+    return () => {
+        // Limpiar si es necesario
+    };
+}, [isEditing]);
 
   // Manejador de cambios en Inputs
   const handleInputChange = useCallback((e, accessor) => {
     const rawValue = e.target.value;
+
+        if (Object.keys(editValuesRef.current).length > 50) {
+        // Mantener solo los últimos 20 cambios
+        const recentChanges = Object.entries(editValuesRef.current)
+            .slice(-20)
+            .reduce((acc, [key, value]) => {
+                acc[key] = value;
+                return acc;
+            }, {});
+        editValuesRef.current = recentChanges;
+    }
     
     const numericFields = [
       'snapshot_id', 'underlying_id', 'option_id',
@@ -235,9 +293,24 @@ const handleDateChange = useCallback((newValue, accessor) => {
   setRefresh(prev => prev + 1);
 }, []);
 
-  const isCellEditable = (rowId) => {
-      return isEditing && rowId === selectedRowId;
-  };
+// Helper: ¿Es esta celda editable?
+const isCellEditable = (rowId, rowLevel, fieldType = 'all') => {
+    if (!isEditing || rowId !== selectedRowId) return false;
+    
+    // Para padres (nivel 0), solo permitir editar campos de ID y ts
+    if (rowLevel === 0) {
+        const allowedParentFields = ['snapshot_id', 'underlying_id', 'ts'];
+        return allowedParentFields.includes(fieldType);
+    }
+    
+    // Para hijos (nivel 1), permitir todos los campos EXCEPTO ts
+    if (rowLevel === 1) {
+        const disallowedFields = ['ts']; // Campos que NO son editables para hijos
+        return !disallowedFields.includes(fieldType);
+    }
+    
+    return true;
+};
 
   const getCurrentValue = (originalValue, accessor) => {
       return editValuesRef.current[accessor] !== undefined 
@@ -309,79 +382,108 @@ const handleSaveTrigger = () => {
   };
 
   const columns = useMemo(() => {
-    const idColumns = [
-      {
-        Header: 'ID Snapshot', 
-        accessor: 'snapshot_id',
-        hAlign: 'Center',
-        Cell: ({ cell, row }) => {
-          const shouldShow = row.original.level === 0 || isCellEditable(row.original.id);
-          if (!shouldShow) return '';
-          if (isCellEditable(row.original.id)) {
-            return renderEditableInput(cell.value, 'snapshot_id', "Number");
-          }
-          return cell.value;
-        }
-      },
-      {
-        Header: ({ data }) => {
-          return 'Underlying/Option ID';
-        },
-        accessor: 'underlying_id',
-        id: 'id_column',
-        hAlign: 'Center',
-        Cell: ({ cell, row }) => {
-          const displayId = row.original.level === 0 ? row.original.underlying_id : row.original.option_id;
-          const shouldShow = row.original.level === 0 || isCellEditable(row.original.id);
-          if (!shouldShow) return '';
-          if (isCellEditable(row.original.id)) {
-            const accessor = row.original.level === 0 ? 'underlying_id' : 'option_id';
-            return renderEditableInput(displayId, accessor, "Number");
-          }
-          return displayId;
+    // Columnas de ID - editables para ambos niveles
+const idColumns = [
+  {
+    Header: 'ID Snapshot', 
+    accessor: 'snapshot_id',
+    hAlign: 'Center',
+    Cell: ({ cell, row }) => {
+      // Mostrar siempre para padres, y para hijos en modo edición
+      const shouldShow = row.original.level === 0 || isCellEditable(row.original.id, row.original.level);
+      
+      if (!shouldShow) return '';
+      
+      if (isCellEditable(row.original.id, row.original.level, 'snapshot_id')) {
+        return renderEditableInput(cell.value, 'snapshot_id', "Number");
+      }
+      return cell.value;
+    }
+  },
+  {
+    Header: 'Underlying/Option ID',
+    accessor: 'underlying_id',
+    id: 'id_column',
+    hAlign: 'Center',
+    Cell: ({ cell, row }) => {
+      // Determinar qué ID mostrar
+      const displayId = row.original.level === 0 ? row.original.underlying_id : row.original.option_id;
+      const accessor = row.original.level === 0 ? 'underlying_id' : 'option_id';
+      
+      // Mostrar siempre para padres, y para hijos en modo edición
+      const shouldShow = row.original.level === 0 || isCellEditable(row.original.id, row.original.level);
+      
+      if (!shouldShow) return '';
+      
+      if (isCellEditable(row.original.id, row.original.level, accessor)) {
+        return renderEditableInput(displayId, accessor, "Number");
+      }
+      return displayId;
         }
       }
     ];
 
-    const dateColumn = [
-      {
-        Header: 'Fecha', 
-        accessor: 'ts',
-        hAlign: 'Center',
-        Cell: ({ cell, row }) => {
-          return cell.value ? 
-            <span style={{fontSize:'0.85rem'}}>{new Date(cell.value).toLocaleString()}</span> : '';
-        }
+// Columna de Fecha - usar DateTimePicker para padres
+// Columna de Fecha - SOLO editable para padres
+const dateColumn = [
+  {
+    Header: 'Fecha', 
+    accessor: 'ts',
+    hAlign: 'Center',
+    Cell: ({ cell, row }) => {
+      // Para hijos, siempre mostrar la fecha normalmente (no editable)
+      if (row.original.level === 1) {
+        return cell.value ? 
+          <span style={{fontSize:'0.85rem'}}>{new Date(cell.value).toLocaleString()}</span> : '';
       }
-    ];
+      
+      // Para padres: verificar si es editable
+      if (isCellEditable(row.original.id, row.original.level, 'ts')) {
+        const currentValue = getCurrentValue(cell.value, 'ts');
+        return (
+          <TimestampDateTimePicker
+            value={currentValue}
+            onChange={(newValue) => handleDateChange(newValue, 'ts')}
+          />
+        );
+      }
+      
+      // Para padres no editables, mostrar normal
+      return cell.value ? 
+        <span style={{fontSize:'0.85rem'}}>{new Date(cell.value).toLocaleString()}</span> : '';
+    }
+  }
+];
 
     const financialColumns = [
       {
-        Header: 'Strike', 
-        accessor: 'strike', 
-        hAlign: 'Center',
-        Cell: ({ cell, row }) => {
-            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            if (isCellEditable(row.original.id)) {
-                return renderEditableInput(cell.value, 'strike', "Number");
-            }
-            return <span style={{fontWeight:'bold'}}>{cell.value}</span>;
+    Header: 'Strike', 
+    accessor: 'strike', 
+    hAlign: 'Center',
+    Cell: ({ cell, row }) => {
+        // Para padres, no mostrar strike
+        if (row.original.level === 0) return '';
+        
+        if (isCellEditable(row.original.id, row.original.level, 'strike')) {
+            return renderEditableInput(cell.value, 'strike', "Number");
         }
-      },
-      {
+        return <span style={{fontWeight:'bold'}}>{cell.value}</span>;
+    }
+  },
+  {
     Header: 'Tipo', 
-    accessor: 'right', // Cambiar de 'type' a 'right'
+    accessor: 'right', 
     hAlign: 'Center',
     Cell: ({ cell, row }) => {
         // Para padres, no mostrar tipo
-        if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
+        if (row.original.level === 0) return '';
         
-        if (isCellEditable(row.original.id)) {
-            const currentValue = getCurrentValue(cell.value, 'right'); // Cambiar a 'right'
+        if (isCellEditable(row.original.id, row.original.level, 'right')) {
+            const currentValue = getCurrentValue(cell.value, 'right');
             return (
               <TypeComboBox 
                 value={currentValue}
-                onChange={(newValue) => handleTypeChange(newValue, 'right')} // Cambiar a 'right'
+                onChange={(newValue) => handleTypeChange(newValue, 'right')}
               />
             );
         }
@@ -391,16 +493,16 @@ const handleSaveTrigger = () => {
         const state = displayValue === 'Call' ? "Success" : "Error";
         return <ObjectStatus state={state} inverted>{displayValue}</ObjectStatus>;
     }
-    },
-      {
+  },
+  {
     Header: 'Expira', 
     accessor: 'expiration',
     hAlign: 'Center',
     Cell: ({ cell, row }) => {
         // Para padres, no mostrar expiración
-        if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
+        if (row.original.level === 0) return '';
         
-        if (isCellEditable(row.original.id)) {
+        if (isCellEditable(row.original.id, row.original.level, 'expiration')) {
             const currentValue = getCurrentValue(cell.value, 'expiration');
             return (
               <ExpirationDatePicker
@@ -410,103 +512,118 @@ const handleSaveTrigger = () => {
             );
         }
         
-        // CORRECCIÓN: Mostrar fecha de forma segura
-        if (!cell.value) return '';
-        
-        try {
-          const date = new Date(cell.value);
-          if (isNaN(date.getTime())) return 'Fecha inválida';
-          return <span style={{fontSize:'0.85rem'}}>{date.toLocaleDateString()}</span>;
-        } catch (error) {
-          console.error('Error formateando fecha:', error);
-          return 'Fecha inválida';
-        }
+        return cell.value ? 
+          <span style={{fontSize:'0.85rem'}}>{new Date(cell.value).toLocaleDateString()}</span> : '';
     }
-    },
-      // ... (resto de las columnas financieras igual)
+  },
       {
-        Header: 'Bid', 
-        accessor: 'bid', 
-        hAlign: 'Center',
-        Cell: ({ cell, row }) => {
-            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            if (isCellEditable(row.original.id)) {
-                return renderEditableInput(cell.value, 'bid', "Number");
-            }
+    Header: 'Bid', 
+    accessor: 'bid', 
+    hAlign: 'Center',
+    Cell: ({ cell, row }) => {
+        // SOLO para hijos en modo edición
+        if (!isCellEditable(row.original.id, row.original.level)) {
+            // Para padres, no mostrar bid
+            if (row.original.level === 0) return '';
             return <span style={{fontFamily:'monospace', color:'#2b7c2b'}}>{cell.value}</span>;
         }
-      },
-      {
-        Header: 'Ask', 
-        accessor: 'ask', 
-        hAlign: 'Center',
-        Cell: ({ cell, row }) => {
-            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            if (isCellEditable(row.original.id)) {
-                return renderEditableInput(cell.value, 'ask', "Number");
-            }
-            return <span style={{fontFamily:'monospace', color:'#bb0000'}}>{cell.value}</span>;
+        
+        return renderEditableInput(cell.value, 'bid', "Number");
+    }
+},
+{
+    Header: 'Ask', 
+    accessor: 'ask', 
+    hAlign: 'Center',
+    Cell: ({ cell, row }) => {
+       if (!isCellEditable(row.original.id, row.original.level)) {
+            // Para padres, no mostrar bid
+            if (row.original.level === 0) return '';
+            return <span style={{fontFamily:'monospace', color:'#2b7c2b'}}>{cell.value}</span>;
         }
-      },
+        
+        return renderEditableInput(cell.value, 'ask', "Number");
+    }
+},
       { 
         Header: 'IV %', 
         accessor: 'iv', 
         hAlign: 'Center', 
         Cell: ({ cell, row }) => {
-            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            return isCellEditable(row.original.id) 
-              ? renderEditableInput(cell.value, 'iv', "Number")
-              : cell.value;
+        // SOLO para hijos en modo edición
+       if (!isCellEditable(row.original.id, row.original.level)) {
+            // Para padres, no mostrar bid
+            if (row.original.level === 0) return '';
+            return <span style={{fontFamily:'monospace', color:'#2b7c2b'}}>{cell.value}</span>;
         }
+        
+        return renderEditableInput(cell.value, 'iv', "Number");
+    }
       },
       { 
         Header: 'Delta', 
         accessor: 'delta', 
         hAlign: 'Center', 
         Cell: ({ cell, row }) => {
-            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            return isCellEditable(row.original.id) 
-              ? renderEditableInput(cell.value, 'delta', "Number")
-              : <span style={{color:'#0056b3'}}>{cell.value}</span>;
+        // SOLO para hijos en modo edición
+       if (!isCellEditable(row.original.id, row.original.level)) {
+            // Para padres, no mostrar bid
+            if (row.original.level === 0) return '';
+            return <span style={{fontFamily:'monospace', color:'#2b7c2b'}}>{cell.value}</span>;
         }
+        
+        return renderEditableInput(cell.value, 'delta', "Number");
+    }
       },
       { 
         Header: 'Gamma', 
         accessor: 'gamma', 
         hAlign: 'Center', 
         Cell: ({ cell, row }) => {
-            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            return isCellEditable(row.original.id) 
-              ? renderEditableInput(cell.value, 'gamma', "Number")
-              : cell.value;
+        // SOLO para hijos en modo edición
+       if (!isCellEditable(row.original.id, row.original.level)) {
+            // Para padres, no mostrar bid
+            if (row.original.level === 0) return '';
+            return <span style={{fontFamily:'monospace', color:'#2b7c2b'}}>{cell.value}</span>;
         }
+        
+        return renderEditableInput(cell.value, 'gamma', "Number");
+    }
       },
       { 
         Header: 'Theta', 
         accessor: 'theta', 
         hAlign: 'Center', 
         Cell: ({ cell, row }) => {
-            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            return isCellEditable(row.original.id) 
-              ? renderEditableInput(cell.value, 'theta', "Number")
-              : cell.value;
+        // SOLO para hijos en modo edición
+       if (!isCellEditable(row.original.id, row.original.level)) {
+            // Para padres, no mostrar bid
+            if (row.original.level === 0) return '';
+            return <span style={{fontFamily:'monospace', color:'#2b7c2b'}}>{cell.value}</span>;
         }
+        
+        return renderEditableInput(cell.value, 'theta', "Number");
+    }
       },
       { 
         Header: 'Vega', 
         accessor: 'vega', 
         hAlign: 'Center', 
         Cell: ({ cell, row }) => {
-            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            return isCellEditable(row.original.id) 
-              ? renderEditableInput(cell.value, 'vega', "Number")
-              : cell.value;
+        // SOLO para hijos en modo edición
+       if (!isCellEditable(row.original.id, row.original.level)) {
+            // Para padres, no mostrar bid
+            if (row.original.level === 0) return '';
+            return <span style={{fontFamily:'monospace', color:'#2b7c2b'}}>{cell.value}</span>;
         }
+        
+        return renderEditableInput(cell.value, 'vega', "Number");
+    }
       }
     ];
 
     return [...idColumns, ...dateColumn, ...financialColumns];
-  }, [isEditing, selectedRowId, refresh, handleInputChange, handleTypeChange, handleDateChange]);
+  }, [isEditing, selectedRowId, refresh]);
 
   return (
     <>

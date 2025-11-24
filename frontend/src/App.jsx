@@ -31,23 +31,27 @@ export default function App() {
     }
   };
 
-  // Manejamos la selección (bloqueamos si se está editando para no perder cambios)
-  const handleRowSelect = (row) => {
-      if (!isEditing) {
-          console.log("Fila seleccionada:", row);
-          setSelectedRow(row);
-      }
-  };
+// En App.jsx, modifica handleRowSelect para evitar seleccionar padres en modo edición:
+const handleRowSelect = (row) => {
+    if (!isEditing) {
+        console.log("Fila seleccionada:", row);
+        setSelectedRow(row);
+        
+        // Si es un padre, deshabilitar el botón de edición o mostrar mensaje
+        if (row.level === 0) {
+            console.log("⚠️  Los registros padres no son editables");
+        }
+    }
+};
 
-  // Activar modo edición (Botón Toolbar)
-  const handleEdit = () => {
-      if (selectedRow) {
-          setIsEditing(true); 
-      }
-  };
-
+// Y en el botón de edición, puedes agregar una validación:
+// En App.jsx - permite editar tanto padres como hijos
+const handleEdit = () => {
+    if (selectedRow) {
+        setIsEditing(true); 
+    }
+};
   // Guardar cambios (Botón Fila)
-// En App.jsx, modifica el handleSave:
 
 const handleSave = async (updatedData) => {
     console.log("💾 Iniciando guardado con datos:", updatedData);
@@ -138,12 +142,13 @@ const handleSave = async (updatedData) => {
                         <>
                             <Button icon="add" design="Emphasized">Agregar</Button>
                             <Button 
-                                icon="edit" 
-                                disabled={!selectedRow} 
-                                onClick={handleEdit}
-                            >
-                                Editar
-                            </Button>
+                            icon="edit" 
+                            disabled={!selectedRow} 
+                            onClick={handleEdit}
+                            tooltip={selectedRow?.level === 0 ? "Editar Snapshot" : "Editar Opción"}
+                        >
+                            Editar
+                        </Button>
                             <Button 
                                 icon="delete" 
                                 design="Transparent" 
