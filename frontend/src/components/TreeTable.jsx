@@ -1,12 +1,19 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { AnalyticalTable, ObjectStatus, Input, Button } from '@ui5/webcomponents-react';
+import { 
+  AnalyticalTable, 
+  ObjectStatus, 
+  Input, 
+  Button, 
+  ComboBox, 
+  ComboBoxItem, 
+  DatePicker 
+} from '@ui5/webcomponents-react';
 import '@ui5/webcomponents-icons/dist/AllIcons.js';
 
 // Componente Input personalizado MEJORADO
 const StableInput = React.memo(({ value, type, onChange, ...props }) => {
   const inputRef = useRef(null);
   
-  // Convertir valor a string para el input (UI5 espera string)
   const stringValue = value != null ? String(value) : '';
   
   useEffect(() => {
@@ -22,9 +29,9 @@ const StableInput = React.memo(({ value, type, onChange, ...props }) => {
       value={stringValue}
       onChange={onChange}
       style={{ 
-        width: "100%", // OCUPAR TODO EL ANCHO
+        width: "100%",
         minWidth: "80px",
-        textAlign: "center" // CENTRAR EL TEXTO DENTRO DEL INPUT
+        textAlign: "center"
       }}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
@@ -32,16 +39,148 @@ const StableInput = React.memo(({ value, type, onChange, ...props }) => {
     />
   );
 });
-// El componente principal - CON EXPORTACIÓN POR DEFECTO
+
+// VERSIÓN ALTERNATIVA - ComboBox con estado interno
+// Componente ComboBox para Tipo - VERSIÓN MEJORADA CON PLACEHOLDER
+const TypeComboBox = React.memo(({ value, onChange }) => {
+  const comboRef = useRef(null);
+
+  // Efecto para sincronizar el valor cuando cambia
+  useEffect(() => {
+    if (comboRef.current) {
+      const displayValue = value === 'C' ? 'Call' : value === 'P' ? 'Put' : '';
+      comboRef.current.value = displayValue;
+    }
+  }, [value]);
+
+  const handleChange = (e) => {
+    const selectedText = e.target.value;
+    console.log('ComboBox seleccionado:', selectedText);
+    
+    // Convertir a valor interno
+    const internalValue = selectedText === 'Call' ? 'C' : 
+                         selectedText === 'Put' ? 'P' : '';
+    
+    if (onChange && internalValue) {
+      onChange(internalValue);
+    }
+  };
+
+  // Determinar el texto a mostrar basado en el valor actual
+  const getDisplayValue = () => {
+    if (value === 'C') return 'Call';
+    if (value === 'P') return 'Put';
+    return ''; // Vacío si no hay valor
+  };
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+      <ComboBox
+        ref={comboRef}
+        value={getDisplayValue()}
+        onChange={handleChange}
+        style={{ width: '90%', textAlign: 'center' }}
+        placeholder={getDisplayValue() || "Seleccionar tipo..."}
+      >
+        <ComboBoxItem text="Call" />
+        <ComboBoxItem text="Put" />
+      </ComboBox>
+    </div>
+  );
+});
+
+// NUEVO: Componente DatePicker para Expiración - CORREGIDO
+const ExpirationDatePicker = React.memo(({ value, onChange }) => {
+  const [internalValue, setInternalValue] = useState('');
+
+  // Sincronizar cuando el valor externo cambia
+  useEffect(() => {
+    if (value) {
+      try {
+        const date = new Date(value);
+        if (!isNaN(date.getTime())) {
+          // Formatear para UI5 DatePicker (YYYY-MM-DD)
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          const formattedDate = `${year}-${month}-${day}`;
+          setInternalValue(formattedDate);
+        }
+      } catch (error) {
+        console.error('Error parsing date:', error);
+      }
+    }
+  }, [value]);
+
+  const handleChange = (e) => {
+    // UI5 DatePicker devuelve la fecha en formato "Dec 25, 2026"
+    // Necesitamos convertirla a un formato que podamos usar
+    const rawDate = e.target.value;
+    console.log('DatePicker cambio (raw):', rawDate);
+    
+    if (rawDate) {
+      try {
+        // CORRECCIÓN: Usar el formato de UI5 directamente
+        // UI5 usa el formato del navegador, pero podemos usar new Date()
+        const date = new Date(rawDate);
+        if (!isNaN(date.getTime())) {
+          // Convertir a formato ISO con hora fija
+          const isoDate = new Date(Date.UTC(
+            date.getFullYear(),
+            date.getMonth(),
+            date.getDate(),
+            10, 0, 0, 0
+          )).toISOString();
+          
+          console.log('DatePicker cambio (ISO):', isoDate);
+          
+          if (onChange) {
+            onChange(isoDate);
+          }
+        } else {
+          throw new Error('Fecha inválida');
+        }
+      } catch (error) {
+        console.error('Error creating ISO date:', error);
+        if (onChange) {
+          onChange(null);
+        }
+      }
+    } else {
+      if (onChange) {
+        onChange(null);
+      }
+    }
+  };
+
+  // Obtener placeholder
+  const getPlaceholder = () => {
+    if (value) {
+      try {
+        const date = new Date(value);
+        return !isNaN(date.getTime()) ? date.toLocaleDateString() : "Seleccionar fecha...";
+      } catch {
+        return "Seleccionar fecha...";
+      }
+    }
+    return "Seleccionar fecha...";
+  };
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+      <DatePicker
+        value={internalValue}
+        onChange={handleChange}
+        style={{ width: '90%' }}
+        placeholder={getPlaceholder()}
+      />
+    </div>
+  );
+});
 const TreeTable = ({ data, loading, onRowSelect, isEditing, selectedRowId, onSave, onCancel }) => {
-
-  // Ref para almacenar cambios - ÚNICA FUENTE DE VERDAD
   const editValuesRef = useRef({});
-
-  // Estado para forzar rerender cuando hay cambios
   const [refresh, setRefresh] = useState(0);
 
-  // Limpiar valores al salir de edición
   useEffect(() => {
     if (!isEditing) {
         editValuesRef.current = {};
@@ -49,11 +188,10 @@ const TreeTable = ({ data, loading, onRowSelect, isEditing, selectedRowId, onSav
     }
   }, [isEditing]);
 
-  // Manejador de cambios en Inputs - CON CONVERSIÓN CORRECTA DE TIPOS
+  // Manejador de cambios en Inputs
   const handleInputChange = useCallback((e, accessor) => {
     const rawValue = e.target.value;
     
-    // Definir qué campos son numéricos (IDs y campos financieros)
     const numericFields = [
       'snapshot_id', 'underlying_id', 'option_id',
       'strike', 'bid', 'ask', 'iv', 'delta', 'gamma', 'theta', 'vega'
@@ -62,12 +200,9 @@ const TreeTable = ({ data, loading, onRowSelect, isEditing, selectedRowId, onSav
     let storageValue;
     
     if (numericFields.includes(accessor)) {
-        // Para campos numéricos, convertir a número
         storageValue = rawValue === '' ? null : Number(rawValue);
-        
-        // Validar que sea un número válido
         if (isNaN(storageValue)) {
-            storageValue = rawValue; // Mantener como string si no es número válido
+            storageValue = rawValue;
         }
     } else {
         storageValue = rawValue;
@@ -80,107 +215,108 @@ const TreeTable = ({ data, loading, onRowSelect, isEditing, selectedRowId, onSav
         type: typeof storageValue
     });
     
-    // Actualizar DIRECTAMENTE la ref
     editValuesRef.current[accessor] = storageValue;
-    
-    // Forzar rerender para mostrar cambios
     setRefresh(prev => prev + 1);
   }, []);
 
-  // Helper: ¿Es esta celda editable?
+// EN EL TreeTable PRINCIPAL - Asegurar que los handlers se creen correctamente
+const handleTypeChange = useCallback((newValue, accessor) => {
+  console.log(`📝 Cambio en ${accessor}:`, newValue);
+  
+  editValuesRef.current[accessor] = newValue;
+  setRefresh(prev => prev + 1);
+}, []);
+
+// NUEVO: Manejador para DatePicker (Expiration) - SIMPLIFICADO  
+const handleDateChange = useCallback((newValue, accessor) => {
+  console.log(`📝 Cambio en ${accessor}:`, newValue);
+  
+  editValuesRef.current[accessor] = newValue;
+  setRefresh(prev => prev + 1);
+}, []);
+
   const isCellEditable = (rowId) => {
       return isEditing && rowId === selectedRowId;
   };
 
-  // Obtener valor actual para display
   const getCurrentValue = (originalValue, accessor) => {
       return editValuesRef.current[accessor] !== undefined 
           ? editValuesRef.current[accessor] 
           : originalValue;
   };
 
-  // --- PUENTE DE GUARDADO (TOOLBAR -> TABLA) ---
-// En TreeTable.jsx, modifica el handleSaveTrigger:
-
 const handleSaveTrigger = () => {
-    if (onSave) {
-        // Buscamos la fila original en los datos
-        const findRow = (nodes) => {
-            for (const node of nodes) {
-                if (node.id === selectedRowId) return node;
-                if (node.subRows) {
-                    const found = findRow(node.subRows);
-                    if (found) return found;
-                }
-            }
-            return null;
-        };
+  if (onSave) {
+      // Buscamos la fila original en los datos
+      const findRow = (nodes) => {
+          for (const node of nodes) {
+              if (node.id === selectedRowId) return node;
+              if (node.subRows) {
+                  const found = findRow(node.subRows);
+                  if (found) return found;
+              }
+          }
+          return null;
+      };
 
-        const originalRow = findRow(data);
+      const originalRow = findRow(data);
 
-        if (originalRow) {
-            // Mezclamos: Original + Cambios de la ref
-            const finalData = { 
-                ...originalRow, 
-                ...editValuesRef.current,
-                // Guardar los IDs originales para referencia
-                _originalSnapshotId: originalRow.snapshot_id,
-                _originalOptionId: originalRow.option_id,
-                _originalUnderlyingId: originalRow.underlying_id
-            };
-            
-            console.log("💾 Datos para guardar:", {
-                original: originalRow,
-                cambios: editValuesRef.current,
-                final: finalData
-            });
-            
-            onSave(finalData);
-        } else {
-            console.error("❌ No se encontró la fila original para guardar");
-        }
-    }
+      if (originalRow) {
+          // CORRECCIÓN: Mezclar correctamente los datos
+          // Asegurarnos de que TODOS los campos de editValuesRef.current se incluyan
+          const finalData = { 
+              ...originalRow,
+              ...editValuesRef.current, // ESTA LÍNEA ES CLAVE - debe ir después de originalRow
+          };
+          
+          console.log("💾 Datos para guardar - VERIFICACIÓN COMPLETA:", {
+              original: originalRow,
+              cambios: editValuesRef.current,
+              final: finalData,
+              // Verificación específica del campo type
+              tieneTypeEnCambios: 'type' in editValuesRef.current,
+              typeEnCambios: editValuesRef.current.type,
+              typeEnFinal: finalData.type
+          });
+          
+          onSave(finalData);
+      } else {
+          console.error("❌ No se encontró la fila original para guardar");
+      }
+  }
 };
 
-// Función para renderizar inputs editables - VERSIÓN CENTRADA
-const renderEditableInput = (originalValue, accessor, type = "Text") => {
-    const currentValue = getCurrentValue(originalValue, accessor);
-    
-    return (
-        <div style={{ 
-            display: 'flex', 
-            justifyContent: 'center',
-            width: '100%'
-        }}>
-            <StableInput 
-                value={currentValue || ''}
-                type={type}
-                onChange={(e) => handleInputChange(e, accessor)}
-                style={{
-                    width: '90%', // Un poco menos del 100% para mejor visual
-                    textAlign: 'center'
-                }}
-            />
-        </div>
-    );
-};
+  const renderEditableInput = (originalValue, accessor, type = "Text") => {
+      const currentValue = getCurrentValue(originalValue, accessor);
+      
+      return (
+          <div style={{ 
+              display: 'flex', 
+              justifyContent: 'center',
+              width: '100%'
+          }}>
+              <StableInput 
+                  value={currentValue || ''}
+                  type={type}
+                  onChange={(e) => handleInputChange(e, accessor)}
+                  style={{
+                      width: '90%',
+                      textAlign: 'center'
+                  }}
+              />
+          </div>
+      );
+  };
 
-  // Columnas - refresh como dependencia para actualizar valores
   const columns = useMemo(() => {
-    // COLUMNAS EN EL ORDEN CORRECTO:
-    
-    // 1. IDs (primero)
     const idColumns = [
       {
         Header: 'ID Snapshot', 
         accessor: 'snapshot_id',
         hAlign: 'Center',
         Cell: ({ cell, row }) => {
-          // Mostrar solo para padres O para hijos en modo edición
           const shouldShow = row.original.level === 0 || isCellEditable(row.original.id);
-          
           if (!shouldShow) return '';
-          
           if (isCellEditable(row.original.id)) {
             return renderEditableInput(cell.value, 'snapshot_id', "Number");
           }
@@ -189,21 +325,15 @@ const renderEditableInput = (originalValue, accessor, type = "Text") => {
       },
       {
         Header: ({ data }) => {
-          // Header dinámico
           return 'Underlying/Option ID';
         },
         accessor: 'underlying_id',
         id: 'id_column',
         hAlign: 'Center',
         Cell: ({ cell, row }) => {
-          // Determinar qué ID mostrar
           const displayId = row.original.level === 0 ? row.original.underlying_id : row.original.option_id;
-          
-          // Mostrar solo para padres O para hijos en modo edición
           const shouldShow = row.original.level === 0 || isCellEditable(row.original.id);
-          
           if (!shouldShow) return '';
-          
           if (isCellEditable(row.original.id)) {
             const accessor = row.original.level === 0 ? 'underlying_id' : 'option_id';
             return renderEditableInput(displayId, accessor, "Number");
@@ -213,7 +343,6 @@ const renderEditableInput = (originalValue, accessor, type = "Text") => {
       }
     ];
 
-    // 2. Fecha (segundo)
     const dateColumn = [
       {
         Header: 'Fecha', 
@@ -226,7 +355,6 @@ const renderEditableInput = (originalValue, accessor, type = "Text") => {
       }
     ];
 
-    // 3. Columnas financieras (tercero en adelante)
     const financialColumns = [
       {
         Header: 'Strike', 
@@ -234,54 +362,76 @@ const renderEditableInput = (originalValue, accessor, type = "Text") => {
         hAlign: 'Center',
         Cell: ({ cell, row }) => {
             if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            
             if (isCellEditable(row.original.id)) {
-                return (
-                  <div style={{ display: 'flex', justifyContent: 'center' }}>
-                    {renderEditableInput(cell.value, 'strike', "Number")}
-                  </div>
-                );
+                return renderEditableInput(cell.value, 'strike', "Number");
             }
             return <span style={{fontWeight:'bold'}}>{cell.value}</span>;
         }
       },
       {
-        Header: 'Tipo', 
-        accessor: 'type', 
-        hAlign: 'Center',
-        Cell: ({ cell, row }) => {
-            // Para padres, no mostrar tipo
-            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            
-            if (!cell.value) return '';
-            const state = cell.value === 'Call' ? "Success" : "Error";
-            return <ObjectStatus state={state} inverted>{cell.value}</ObjectStatus>;
+    Header: 'Tipo', 
+    accessor: 'right', // Cambiar de 'type' a 'right'
+    hAlign: 'Center',
+    Cell: ({ cell, row }) => {
+        // Para padres, no mostrar tipo
+        if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
+        
+        if (isCellEditable(row.original.id)) {
+            const currentValue = getCurrentValue(cell.value, 'right'); // Cambiar a 'right'
+            return (
+              <TypeComboBox 
+                value={currentValue}
+                onChange={(newValue) => handleTypeChange(newValue, 'right')} // Cambiar a 'right'
+              />
+            );
         }
-      },
+        
+        if (!cell.value) return '';
+        const displayValue = cell.value === 'C' ? 'Call' : cell.value === 'P' ? 'Put' : cell.value;
+        const state = displayValue === 'Call' ? "Success" : "Error";
+        return <ObjectStatus state={state} inverted>{displayValue}</ObjectStatus>;
+    }
+    },
       {
-        Header: 'Expira', 
-        accessor: 'expiration',
-        Cell: ({ cell, row }) => {
-            // Para padres, no mostrar expiración
-            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            
-            return cell.value ? 
-              <span style={{fontSize:'0.85rem'}}>{new Date(cell.value).toLocaleDateString()}</span> : '';
+    Header: 'Expira', 
+    accessor: 'expiration',
+    hAlign: 'Center',
+    Cell: ({ cell, row }) => {
+        // Para padres, no mostrar expiración
+        if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
+        
+        if (isCellEditable(row.original.id)) {
+            const currentValue = getCurrentValue(cell.value, 'expiration');
+            return (
+              <ExpirationDatePicker
+                value={currentValue}
+                onChange={(newValue) => handleDateChange(newValue, 'expiration')}
+              />
+            );
         }
-      },
+        
+        // CORRECCIÓN: Mostrar fecha de forma segura
+        if (!cell.value) return '';
+        
+        try {
+          const date = new Date(cell.value);
+          if (isNaN(date.getTime())) return 'Fecha inválida';
+          return <span style={{fontSize:'0.85rem'}}>{date.toLocaleDateString()}</span>;
+        } catch (error) {
+          console.error('Error formateando fecha:', error);
+          return 'Fecha inválida';
+        }
+    }
+    },
+      // ... (resto de las columnas financieras igual)
       {
         Header: 'Bid', 
         accessor: 'bid', 
-        hAlign: 'End',
+        hAlign: 'Center',
         Cell: ({ cell, row }) => {
             if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            
             if (isCellEditable(row.original.id)) {
-                return (
-                  <div style={{ display: 'flex', justifyContent: 'center' }}>
-                    {renderEditableInput(cell.value, 'bid', "Number")}
-                  </div>
-                );
+                return renderEditableInput(cell.value, 'bid', "Number");
             }
             return <span style={{fontFamily:'monospace', color:'#2b7c2b'}}>{cell.value}</span>;
         }
@@ -289,11 +439,9 @@ const renderEditableInput = (originalValue, accessor, type = "Text") => {
       {
         Header: 'Ask', 
         accessor: 'ask', 
-        hAlign: 'End',
+        hAlign: 'Center',
         Cell: ({ cell, row }) => {
-            // Para padres, no mostrar ask
             if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            
             if (isCellEditable(row.original.id)) {
                 return renderEditableInput(cell.value, 'ask', "Number");
             }
@@ -303,11 +451,9 @@ const renderEditableInput = (originalValue, accessor, type = "Text") => {
       { 
         Header: 'IV %', 
         accessor: 'iv', 
-        hAlign: 'End', 
+        hAlign: 'Center', 
         Cell: ({ cell, row }) => {
-            // Para padres, no mostrar IV
             if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            
             return isCellEditable(row.original.id) 
               ? renderEditableInput(cell.value, 'iv', "Number")
               : cell.value;
@@ -316,11 +462,9 @@ const renderEditableInput = (originalValue, accessor, type = "Text") => {
       { 
         Header: 'Delta', 
         accessor: 'delta', 
-        hAlign: 'End', 
+        hAlign: 'Center', 
         Cell: ({ cell, row }) => {
-            // Para padres, no mostrar delta
             if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            
             return isCellEditable(row.original.id) 
               ? renderEditableInput(cell.value, 'delta', "Number")
               : <span style={{color:'#0056b3'}}>{cell.value}</span>;
@@ -329,11 +473,9 @@ const renderEditableInput = (originalValue, accessor, type = "Text") => {
       { 
         Header: 'Gamma', 
         accessor: 'gamma', 
-        hAlign: 'End', 
+        hAlign: 'Center', 
         Cell: ({ cell, row }) => {
-            // Para padres, no mostrar gamma
             if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            
             return isCellEditable(row.original.id) 
               ? renderEditableInput(cell.value, 'gamma', "Number")
               : cell.value;
@@ -342,11 +484,9 @@ const renderEditableInput = (originalValue, accessor, type = "Text") => {
       { 
         Header: 'Theta', 
         accessor: 'theta', 
-        hAlign: 'End', 
+        hAlign: 'Center', 
         Cell: ({ cell, row }) => {
-            // Para padres, no mostrar theta
             if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            
             return isCellEditable(row.original.id) 
               ? renderEditableInput(cell.value, 'theta', "Number")
               : cell.value;
@@ -355,11 +495,9 @@ const renderEditableInput = (originalValue, accessor, type = "Text") => {
       { 
         Header: 'Vega', 
         accessor: 'vega', 
-        hAlign: 'End', 
+        hAlign: 'Center', 
         Cell: ({ cell, row }) => {
-            // Para padres, no mostrar vega
             if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
-            
             return isCellEditable(row.original.id) 
               ? renderEditableInput(cell.value, 'vega', "Number")
               : cell.value;
@@ -367,13 +505,11 @@ const renderEditableInput = (originalValue, accessor, type = "Text") => {
       }
     ];
 
-    // ORDEN FINAL: IDs -> Fecha -> Campos financieros
     return [...idColumns, ...dateColumn, ...financialColumns];
-  }, [isEditing, selectedRowId, refresh, handleInputChange]);
+  }, [isEditing, selectedRowId, refresh, handleInputChange, handleTypeChange, handleDateChange]);
 
   return (
     <>
-        {/* Botón oculto para conectar Toolbar con Tabla */}
         <button id="btn-save-internal" style={{display:'none'}} onClick={handleSaveTrigger}></button>
 
         <AnalyticalTable
@@ -399,5 +535,4 @@ const renderEditableInput = (originalValue, accessor, type = "Text") => {
   );
 };
 
-// EXPORTACIÓN POR DEFECTO - ESTA ES LA LÍNEA CLAVE
 export default TreeTable;

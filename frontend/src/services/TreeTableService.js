@@ -3,6 +3,9 @@
 const BASE_URL = 'http://localhost:4004/api/Chain/Snapshot/crud';
 
 // Función auxiliar para limpiar el objeto
+// Función auxiliar para limpiar el objeto - VERSIÓN CORREGIDA
+// Función auxiliar para limpiar el objeto - VERSIÓN CORREGIDA
+// Función auxiliar para limpiar el objeto - VERSIÓN CORREGIDA
 const cleanRowData = (row) => {
     console.log("🔄 Datos originales para limpiar:", row);
     
@@ -17,8 +20,8 @@ const cleanRowData = (row) => {
         theta: row.theta != null ? Number(row.theta) : undefined,
         vega: row.vega != null ? Number(row.vega) : undefined,
         
-        // Convertir tipo visual a código
-        right: row.type === 'Call' ? 'C' : (row.type === 'Put' ? 'P' : (row.right || undefined)),
+        // CORRECCIÓN: Usar row.right directamente, no row.type
+        right: row.right || undefined, // ← ESTA ES LA LÍNEA CLAVE
         
         // Campos de fecha
         ts: row.ts || undefined,
@@ -37,6 +40,7 @@ const cleanRowData = (row) => {
         }
     });
 
+    console.log("🔄 Datos limpios para enviar:", cleanData);
     return cleanData;
 };
 
@@ -84,15 +88,20 @@ export const TreeTableService = {
     }
   },
 
-  updateRow: async (row) => {
+updateRow: async (row) => {
+    let response; // Declarar response fuera del try para que esté disponible en el catch
+
     try {
         const isItem = row.strike !== undefined || row.level === 1;
         const processType = isItem ? 'UpdateItem' : 'UpdateSnapshot';
 
         console.log(`🎯 Preparando actualización: ${processType}`);
+        console.log('📋 Datos recibidos del frontend:', row);
 
         // 1. LIMPIEZA DE DATOS
         const cleanData = cleanRowData(row);
+
+        console.log('🔍 Verificación específica - type en cleanData:', cleanData.type);
 
         // 2. Construir Query Params
         const params = new URLSearchParams({
@@ -105,9 +114,10 @@ export const TreeTableService = {
         const url = `${BASE_URL}?${params.toString()}`;
 
         console.log("📤 URL de llamada:", url);
+        console.log("📦 Datos que se enviarán:", { data: cleanData });
 
         // 3. Enviar datos
-        const response = await fetch(url, {
+        response = await fetch(url, {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json' 
@@ -149,11 +159,11 @@ export const TreeTableService = {
     } catch (error) {
         console.error("❌ Error en updateRow:", error);
         
-        // Mostrar alerta de manera segura
-        const userMessage = getErrorMessage(error);
+        // Mostrar alerta de manera segura - CORREGIDO
+        const userMessage = error.message || 'Error desconocido';
         alert(`Error al actualizar: ${userMessage}`);
         
         return false;
     }
-  }
+}
 };
