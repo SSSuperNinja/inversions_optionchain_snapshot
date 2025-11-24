@@ -25,7 +25,17 @@ const OptionChainSnapshotItemSchema = new mongoose.Schema({
 
 }, {
     timestamps: true,
-    collection: 'optionchainsnapshotitems' // Nombre exacto de tu colección en Mongo
+    collection: 'optionchainsnapshotitems',
+    // Asegurar que _id esté disponible
+    id: true,
+    toJSON: { 
+        virtuals: true,
+        transform: function(doc, ret) {
+            ret.id = ret._id.toString(); // Convertir _id a id para el frontend
+            delete ret._id;
+            return ret;
+        }
+    },
+    toObject: { virtuals: true }
 });
-
 module.exports = mongoose.model('OptionChainSnapshotItem', OptionChainSnapshotItemSchema);

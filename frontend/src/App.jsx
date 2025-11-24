@@ -6,8 +6,7 @@ import {
 import '@ui5/webcomponents-icons/dist/AllIcons.js';
 
 import { TreeTableService } from './services/TreeTableService'; 
-import { TreeTable } from './components/TreeTable';
-
+import TreeTable from './components/TreeTable';
 export default function App() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -48,28 +47,33 @@ export default function App() {
   };
 
   // Guardar cambios (Botón Fila)
-  const handleSave = async (updatedData) => {
+// En App.jsx, modifica el handleSave:
+
+const handleSave = async (updatedData) => {
     console.log("💾 Iniciando guardado con datos:", updatedData);
     
-    const success = await TreeTableService.updateRow(updatedData);
-    
-    if (success) {
-        console.log("✅ Guardado exitoso, recargando datos...");
-        setIsEditing(false);
-        setSelectedRow(null);
+    try {
+        const success = await TreeTableService.updateRow(updatedData);
         
-        // Pequeño delay para asegurar que el backend procesó la actualización
-        setTimeout(() => {
-            loadData();
-        }, 500);
-        
-    } else {
-        console.log("❌ Falló el guardado");
-        // Opcional: mantener el modo edición si falló
-        // setIsEditing(false);
+        if (success) {
+            console.log("✅ Guardado exitoso, recargando datos...");
+            setIsEditing(false);
+            setSelectedRow(null);
+            
+            // Pequeño delay para asegurar que el backend procesó la actualización
+            setTimeout(() => {
+                loadData();
+            }, 500);
+            
+        } else {
+            console.log("❌ Falló el guardado - Manteniendo modo edición");
+            // NO cerramos el modo edición para que el usuario pueda corregir
         }
-    };
-
+    } catch (error) {
+        console.error("💥 Error en handleSave:", error);
+        // El error ya fue mostrado por TreeTableService
+    }
+};
     const handleCancel = () => {
     setIsEditing(false);
     setSelectedRow(null); // Limpiar selección

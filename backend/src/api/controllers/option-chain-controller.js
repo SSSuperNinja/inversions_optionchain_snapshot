@@ -1,44 +1,57 @@
 const cds = require('@sap/cds');
-// Importamos el servicio
-// Nota: Usamos '..' para subir un nivel desde 'controllers' y entrar a 'services'
 const { processCrud } = require('../services/option-chain-service');
 
 class OptionChainController extends cds.ApplicationService {
     async init() {
         
-        // Interceptamos la acción 'crud' definida en el archivo .cds
         this.on('crud', async (req) => {
             try {
                 // 1. Accedemos a los parámetros de la URL (Query Params)
-                // req.http.req.query es el objeto nativo de Express que contiene ?param=valor
                 const queryParams = req.http?.req?.query || {};
                 const bodyData = req.data || {};
 
-                // 2. Mezclamos Query Params (Prioridad) + Body Params
-                const requestData = {
-                    ...bodyData, // Incluye el objeto 'data' del body con los campos a editar
-                    
-                    // Parámetros de Control (URL tiene prioridad sobre Body)
-                    ProcessType: queryParams.ProcessType || bodyData.ProcessType,
-                    User: queryParams.User || bodyData.User,
-                    dbServer: queryParams.dbServer || bodyData.dbServer,
+                // === DEBUG COMPLETO - AGREGA ESTAS LÍNEAS ===
+                console.log("=== 🐛 DEBUG INICIO ===");
+                console.log("🔍 Query Params objeto completo:", queryParams);
+                console.log("🔍 Keys de Query Params:", Object.keys(queryParams));
+                console.log("🔍 Body Data:", bodyData);
+                console.log("🔍 req.data completo:", req.data);
+                console.log("🔍 URL completa:", req.http?.req?.url);
+                console.log("=== 🐛 DEBUG FIN ===");
+                // === FIN DEBUG ===
 
-                    // Llaves de Identificación (Forzamos conversión a número si vienen de URL)
-                    snapshot_id: queryParams.snapshot_id ? Number(queryParams.snapshot_id) : bodyData.snapshot_id,
-                    underlying_id: queryParams.underlying_id ? Number(queryParams.underlying_id) : bodyData.underlying_id,
-                    option_id: queryParams.option_id ? Number(queryParams.option_id) : bodyData.option_id
+                // 2. EXTRAER ID de todas las fuentes posibles
+                const id = queryParams.id || queryParams.snapshot_id || queryParams.option_id;
+
+                console.log("🔑 ID extraído después de debug:", id);
+
+                // 3. Mezclamos Query Params + Body Params
+                const requestData = {
+                    // Parámetros de Control (siempre de query params)
+                    ProcessType: queryParams.ProcessType,
+                    User: queryParams.User,
+                    dbServer: queryParams.dbServer,
+                    
+                    // ID del documento
+                    id: id,
+                    
+                    // Datos del body
+                    data: bodyData.data || bodyData
                 };
 
-                console.log(`📡 Controller: Acción [${requestData.ProcessType}]`);
+                console.log(`📡 Controller: Acción [${requestData.ProcessType}] para ID [${requestData.id}]`);
 
-                // 3. Delegamos al Servicio con los datos unificados
-                // Creamos un objeto 'req' enriquecido para pasarlo al servicio
+                // 4. Validar que tengamos el ID para operaciones de update
+                if ((requestData.ProcessType === 'UpdateSnapshot' || requestData.ProcessType === 'UpdateItem') && !requestData.id) {
+                    throw new Error(`Falta el ID para ${requestData.ProcessType}.`);
+                }
+
+                // 5. Delegamos al Servicio con los datos estructurados
                 const enrichedReq = { ...req, data: requestData };
                 return await processCrud(enrichedReq);
 
             } catch (error) {
                 console.error("❌ Error en Controller:", error);
-                // Devolvemos un error 500 estándar de CAP
                 req.error(500, error.message);
             }
         });

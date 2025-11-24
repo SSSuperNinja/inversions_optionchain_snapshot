@@ -52,10 +52,8 @@ service OptionChainRoute @(path: '/api/Chain/Snapshot') {
         dbServer      : String,
         User          : String,
 
-        // Llaves de Búsqueda (IDs actuales del registro a editar)
-        snapshot_id   : Integer,
-        underlying_id : Integer,
-        option_id     : Integer,
+        // ID único del documento (AGREGAR ESTE PARÁMETRO)
+        id            : String,
 
         // Datos a actualizar (JSON estructurado)
         data          : UpdatePayload

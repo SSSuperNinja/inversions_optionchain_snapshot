@@ -2,31 +2,38 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { AnalyticalTable, ObjectStatus, Input, Button } from '@ui5/webcomponents-react';
 import '@ui5/webcomponents-icons/dist/AllIcons.js';
 
-// Componente Input personalizado
+// Componente Input personalizado MEJORADO
 const StableInput = React.memo(({ value, type, onChange, ...props }) => {
   const inputRef = useRef(null);
   
+  // Convertir valor a string para el input (UI5 espera string)
+  const stringValue = value != null ? String(value) : '';
+  
   useEffect(() => {
-    if (inputRef.current && value !== inputRef.current.value) {
-      inputRef.current.value = value || '';
+    if (inputRef.current && stringValue !== inputRef.current.value) {
+      inputRef.current.value = stringValue;
     }
-  }, [value]);
+  }, [stringValue]);
 
   return (
     <Input
       ref={inputRef}
       type={type}
-      value={value || ''}
+      value={stringValue}
       onChange={onChange}
-      style={{ minWidth: "80px" }}
+      style={{ 
+        width: "100%", // OCUPAR TODO EL ANCHO
+        minWidth: "80px",
+        textAlign: "center" // CENTRAR EL TEXTO DENTRO DEL INPUT
+      }}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       {...props}
     />
   );
 });
-
-export function TreeTable({ data, loading, onRowSelect, isEditing, selectedRowId, onSave, onCancel }) {
+// El componente principal - CON EXPORTACIÓN POR DEFECTO
+const TreeTable = ({ data, loading, onRowSelect, isEditing, selectedRowId, onSave, onCancel }) => {
 
   // Ref para almacenar cambios - ÚNICA FUENTE DE VERDAD
   const editValuesRef = useRef({});
@@ -42,25 +49,42 @@ export function TreeTable({ data, loading, onRowSelect, isEditing, selectedRowId
     }
   }, [isEditing]);
 
-  // Manejador de cambios en Inputs - SIMPLIFICADO Y CORRECTO
+  // Manejador de cambios en Inputs - CON CONVERSIÓN CORRECTA DE TIPOS
   const handleInputChange = useCallback((e, accessor) => {
-      const rawValue = e.target.value;
-      
-      // Para campos numéricos, convertir a número, mantener string para UI
-      const isNumberField = ['strike', 'bid', 'ask', 'iv', 'delta', 'gamma', 'theta', 'vega'].includes(accessor);
-      const storageValue = isNumberField ? (rawValue === '' ? null : parseFloat(rawValue)) : rawValue;
-      
-      console.log(`📝 Cambio en ${accessor}:`, { 
-          rawValue, 
-          storageValue,
-          previous: editValuesRef.current[accessor] 
-      });
-      
-      // Actualizar DIRECTAMENTE la ref
-      editValuesRef.current[accessor] = storageValue;
-      
-      // Forzar rerender para mostrar cambios
-      setRefresh(prev => prev + 1);
+    const rawValue = e.target.value;
+    
+    // Definir qué campos son numéricos (IDs y campos financieros)
+    const numericFields = [
+      'snapshot_id', 'underlying_id', 'option_id',
+      'strike', 'bid', 'ask', 'iv', 'delta', 'gamma', 'theta', 'vega'
+    ];
+    
+    let storageValue;
+    
+    if (numericFields.includes(accessor)) {
+        // Para campos numéricos, convertir a número
+        storageValue = rawValue === '' ? null : Number(rawValue);
+        
+        // Validar que sea un número válido
+        if (isNaN(storageValue)) {
+            storageValue = rawValue; // Mantener como string si no es número válido
+        }
+    } else {
+        storageValue = rawValue;
+    }
+    
+    console.log(`📝 Cambio en ${accessor}:`, { 
+        rawValue, 
+        storageValue,
+        previous: editValuesRef.current[accessor],
+        type: typeof storageValue
+    });
+    
+    // Actualizar DIRECTAMENTE la ref
+    editValuesRef.current[accessor] = storageValue;
+    
+    // Forzar rerender para mostrar cambios
+    setRefresh(prev => prev + 1);
   }, []);
 
   // Helper: ¿Es esta celda editable?
@@ -76,161 +100,276 @@ export function TreeTable({ data, loading, onRowSelect, isEditing, selectedRowId
   };
 
   // --- PUENTE DE GUARDADO (TOOLBAR -> TABLA) ---
-  const handleSaveTrigger = () => {
-      if (onSave) {
-          // Buscamos la fila original en los datos
-          const findRow = (nodes) => {
-              for (const node of nodes) {
-                  if (node.id === selectedRowId) return node;
-                  if (node.subRows) {
-                      const found = findRow(node.subRows);
-                      if (found) return found;
-                  }
-              }
-              return null;
-          };
+// En TreeTable.jsx, modifica el handleSaveTrigger:
 
-          const originalRow = findRow(data);
+const handleSaveTrigger = () => {
+    if (onSave) {
+        // Buscamos la fila original en los datos
+        const findRow = (nodes) => {
+            for (const node of nodes) {
+                if (node.id === selectedRowId) return node;
+                if (node.subRows) {
+                    const found = findRow(node.subRows);
+                    if (found) return found;
+                }
+            }
+            return null;
+        };
 
-          if (originalRow) {
-              // Mezclamos: Original + Cambios de la ref
-              const finalData = { 
-                  ...originalRow, 
-                  ...editValuesRef.current 
-              };
-              
-              console.log("💾 Datos para guardar:", {
-                  original: originalRow,
-                  cambios: editValuesRef.current,
-                  final: finalData
-              });
-              
-              onSave(finalData);
-          } else {
-              console.error("❌ No se encontró la fila original para guardar");
-          }
-      }
-  };
+        const originalRow = findRow(data);
 
-  // Función para renderizar inputs editables
-  const renderEditableInput = (originalValue, accessor, type = "Text") => {
-      const currentValue = getCurrentValue(originalValue, accessor);
-      
-      return (
-          <StableInput 
-              value={currentValue || ''}
-              type={type}
-              onChange={(e) => handleInputChange(e, accessor)}
-          />
-      );
-  };
+        if (originalRow) {
+            // Mezclamos: Original + Cambios de la ref
+            const finalData = { 
+                ...originalRow, 
+                ...editValuesRef.current,
+                // Guardar los IDs originales para referencia
+                _originalSnapshotId: originalRow.snapshot_id,
+                _originalOptionId: originalRow.option_id,
+                _originalUnderlyingId: originalRow.underlying_id
+            };
+            
+            console.log("💾 Datos para guardar:", {
+                original: originalRow,
+                cambios: editValuesRef.current,
+                final: finalData
+            });
+            
+            onSave(finalData);
+        } else {
+            console.error("❌ No se encontró la fila original para guardar");
+        }
+    }
+};
+
+// Función para renderizar inputs editables - VERSIÓN CENTRADA
+const renderEditableInput = (originalValue, accessor, type = "Text") => {
+    const currentValue = getCurrentValue(originalValue, accessor);
+    
+    return (
+        <div style={{ 
+            display: 'flex', 
+            justifyContent: 'center',
+            width: '100%'
+        }}>
+            <StableInput 
+                value={currentValue || ''}
+                type={type}
+                onChange={(e) => handleInputChange(e, accessor)}
+                style={{
+                    width: '90%', // Un poco menos del 100% para mejor visual
+                    textAlign: 'center'
+                }}
+            />
+        </div>
+    );
+};
 
   // Columnas - refresh como dependencia para actualizar valores
-  const columns = useMemo(() => [
-    {
-      Header: 'ID Snapshot', 
-      accessor: 'snapshot_id',
-    },
-    {
-      Header: 'Underlying', 
-      accessor: 'underlying_id',
-    },
-    {
-      Header: 'Fecha', 
-      accessor: 'ts',
-      Cell: ({ cell }) => cell.value ? 
-          <span style={{fontSize:'0.85rem'}}>{new Date(cell.value).toLocaleString()}</span> : ''
-    },
-    {
-      Header: 'Strike', 
-      accessor: 'strike', 
-      hAlign: 'Center',
-      Cell: ({ cell, row }) => {
+  const columns = useMemo(() => {
+    // COLUMNAS EN EL ORDEN CORRECTO:
+    
+    // 1. IDs (primero)
+    const idColumns = [
+      {
+        Header: 'ID Snapshot', 
+        accessor: 'snapshot_id',
+        hAlign: 'Center',
+        Cell: ({ cell, row }) => {
+          // Mostrar solo para padres O para hijos en modo edición
+          const shouldShow = row.original.level === 0 || isCellEditable(row.original.id);
+          
+          if (!shouldShow) return '';
+          
           if (isCellEditable(row.original.id)) {
-              return renderEditableInput(cell.value, 'strike', "Number");
+            return renderEditableInput(cell.value, 'snapshot_id', "Number");
           }
-          return <span style={{fontWeight:'bold'}}>{cell.value}</span>
-      }
-    },
-    {
-      Header: 'Tipo', 
-      accessor: 'type', 
-      hAlign: 'Center',
-      Cell: ({ cell }) => {
-          if (!cell.value) return '';
-          const state = cell.value === 'Call' ? "Success" : "Error";
-          return <ObjectStatus state={state} inverted>{cell.value}</ObjectStatus>;
-      }
-    },
-    {
-      Header: 'Expira', 
-      accessor: 'expiration',
-      Cell: ({ cell }) => cell.value ? 
-          <span style={{fontSize:'0.85rem'}}>{new Date(cell.value).toLocaleDateString()}</span> : ''
-    },
-    {
-      Header: 'Bid', 
-      accessor: 'bid', 
-      hAlign: 'End',
-      Cell: ({ cell, row }) => {
+          return cell.value;
+        }
+      },
+      {
+        Header: ({ data }) => {
+          // Header dinámico
+          return 'Underlying/Option ID';
+        },
+        accessor: 'underlying_id',
+        id: 'id_column',
+        hAlign: 'Center',
+        Cell: ({ cell, row }) => {
+          // Determinar qué ID mostrar
+          const displayId = row.original.level === 0 ? row.original.underlying_id : row.original.option_id;
+          
+          // Mostrar solo para padres O para hijos en modo edición
+          const shouldShow = row.original.level === 0 || isCellEditable(row.original.id);
+          
+          if (!shouldShow) return '';
+          
           if (isCellEditable(row.original.id)) {
-              return renderEditableInput(cell.value, 'bid', "Number");
+            const accessor = row.original.level === 0 ? 'underlying_id' : 'option_id';
+            return renderEditableInput(displayId, accessor, "Number");
           }
-          return <span style={{fontFamily:'monospace', color:'#2b7c2b'}}>{cell.value}</span>
+          return displayId;
+        }
       }
-    },
-    {
-      Header: 'Ask', 
-      accessor: 'ask', 
-      hAlign: 'End',
-      Cell: ({ cell, row }) => {
-          if (isCellEditable(row.original.id)) {
-              return renderEditableInput(cell.value, 'ask', "Number");
-          }
-          return <span style={{fontFamily:'monospace', color:'#bb0000'}}>{cell.value}</span>
+    ];
+
+    // 2. Fecha (segundo)
+    const dateColumn = [
+      {
+        Header: 'Fecha', 
+        accessor: 'ts',
+        hAlign: 'Center',
+        Cell: ({ cell, row }) => {
+          return cell.value ? 
+            <span style={{fontSize:'0.85rem'}}>{new Date(cell.value).toLocaleString()}</span> : '';
+        }
       }
-    },
-    { 
-      Header: 'IV %', 
-      accessor: 'iv', 
-      hAlign: 'End', 
-      Cell: ({ cell, row }) => isCellEditable(row.original.id) 
-          ? renderEditableInput(cell.value, 'iv', "Number")
-          : cell.value 
-    },
-    { 
-      Header: 'Delta', 
-      accessor: 'delta', 
-      hAlign: 'End', 
-      Cell: ({ cell, row }) => isCellEditable(row.original.id) 
-          ? renderEditableInput(cell.value, 'delta', "Number")
-          : <span style={{color:'#0056b3'}}>{cell.value}</span> 
-    },
-    { 
-      Header: 'Gamma', 
-      accessor: 'gamma', 
-      hAlign: 'End', 
-      Cell: ({ cell, row }) => isCellEditable(row.original.id) 
-          ? renderEditableInput(cell.value, 'gamma', "Number")
-          : cell.value 
-    },
-    { 
-      Header: 'Theta', 
-      accessor: 'theta', 
-      hAlign: 'End', 
-      Cell: ({ cell, row }) => isCellEditable(row.original.id) 
-          ? renderEditableInput(cell.value, 'theta', "Number")
-          : cell.value 
-    },
-    { 
-      Header: 'Vega', 
-      accessor: 'vega', 
-      hAlign: 'End', 
-      Cell: ({ cell, row }) => isCellEditable(row.original.id) 
-          ? renderEditableInput(cell.value, 'vega', "Number")
-          : cell.value 
-    },
-  ], [isEditing, selectedRowId, refresh, handleInputChange]); // refresh como dependencia
+    ];
+
+    // 3. Columnas financieras (tercero en adelante)
+    const financialColumns = [
+      {
+        Header: 'Strike', 
+        accessor: 'strike', 
+        hAlign: 'Center',
+        Cell: ({ cell, row }) => {
+            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
+            
+            if (isCellEditable(row.original.id)) {
+                return (
+                  <div style={{ display: 'flex', justifyContent: 'center' }}>
+                    {renderEditableInput(cell.value, 'strike', "Number")}
+                  </div>
+                );
+            }
+            return <span style={{fontWeight:'bold'}}>{cell.value}</span>;
+        }
+      },
+      {
+        Header: 'Tipo', 
+        accessor: 'type', 
+        hAlign: 'Center',
+        Cell: ({ cell, row }) => {
+            // Para padres, no mostrar tipo
+            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
+            
+            if (!cell.value) return '';
+            const state = cell.value === 'Call' ? "Success" : "Error";
+            return <ObjectStatus state={state} inverted>{cell.value}</ObjectStatus>;
+        }
+      },
+      {
+        Header: 'Expira', 
+        accessor: 'expiration',
+        Cell: ({ cell, row }) => {
+            // Para padres, no mostrar expiración
+            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
+            
+            return cell.value ? 
+              <span style={{fontSize:'0.85rem'}}>{new Date(cell.value).toLocaleDateString()}</span> : '';
+        }
+      },
+      {
+        Header: 'Bid', 
+        accessor: 'bid', 
+        hAlign: 'End',
+        Cell: ({ cell, row }) => {
+            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
+            
+            if (isCellEditable(row.original.id)) {
+                return (
+                  <div style={{ display: 'flex', justifyContent: 'center' }}>
+                    {renderEditableInput(cell.value, 'bid', "Number")}
+                  </div>
+                );
+            }
+            return <span style={{fontFamily:'monospace', color:'#2b7c2b'}}>{cell.value}</span>;
+        }
+      },
+      {
+        Header: 'Ask', 
+        accessor: 'ask', 
+        hAlign: 'End',
+        Cell: ({ cell, row }) => {
+            // Para padres, no mostrar ask
+            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
+            
+            if (isCellEditable(row.original.id)) {
+                return renderEditableInput(cell.value, 'ask', "Number");
+            }
+            return <span style={{fontFamily:'monospace', color:'#bb0000'}}>{cell.value}</span>;
+        }
+      },
+      { 
+        Header: 'IV %', 
+        accessor: 'iv', 
+        hAlign: 'End', 
+        Cell: ({ cell, row }) => {
+            // Para padres, no mostrar IV
+            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
+            
+            return isCellEditable(row.original.id) 
+              ? renderEditableInput(cell.value, 'iv', "Number")
+              : cell.value;
+        }
+      },
+      { 
+        Header: 'Delta', 
+        accessor: 'delta', 
+        hAlign: 'End', 
+        Cell: ({ cell, row }) => {
+            // Para padres, no mostrar delta
+            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
+            
+            return isCellEditable(row.original.id) 
+              ? renderEditableInput(cell.value, 'delta', "Number")
+              : <span style={{color:'#0056b3'}}>{cell.value}</span>;
+        }
+      },
+      { 
+        Header: 'Gamma', 
+        accessor: 'gamma', 
+        hAlign: 'End', 
+        Cell: ({ cell, row }) => {
+            // Para padres, no mostrar gamma
+            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
+            
+            return isCellEditable(row.original.id) 
+              ? renderEditableInput(cell.value, 'gamma', "Number")
+              : cell.value;
+        }
+      },
+      { 
+        Header: 'Theta', 
+        accessor: 'theta', 
+        hAlign: 'End', 
+        Cell: ({ cell, row }) => {
+            // Para padres, no mostrar theta
+            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
+            
+            return isCellEditable(row.original.id) 
+              ? renderEditableInput(cell.value, 'theta', "Number")
+              : cell.value;
+        }
+      },
+      { 
+        Header: 'Vega', 
+        accessor: 'vega', 
+        hAlign: 'End', 
+        Cell: ({ cell, row }) => {
+            // Para padres, no mostrar vega
+            if (row.original.level === 0 && !isCellEditable(row.original.id)) return '';
+            
+            return isCellEditable(row.original.id) 
+              ? renderEditableInput(cell.value, 'vega', "Number")
+              : cell.value;
+        }
+      }
+    ];
+
+    // ORDEN FINAL: IDs -> Fecha -> Campos financieros
+    return [...idColumns, ...dateColumn, ...financialColumns];
+  }, [isEditing, selectedRowId, refresh, handleInputChange]);
 
   return (
     <>
@@ -258,4 +397,7 @@ export function TreeTable({ data, loading, onRowSelect, isEditing, selectedRowId
         />
     </>
   );
-}
+};
+
+// EXPORTACIÓN POR DEFECTO - ESTA ES LA LÍNEA CLAVE
+export default TreeTable;
