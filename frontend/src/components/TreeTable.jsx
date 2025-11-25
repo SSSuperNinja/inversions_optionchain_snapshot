@@ -81,61 +81,87 @@ const TypeComboBox = React.memo(({ value, onChange }) => {
   );
 });
 
+// En TreeTable.jsx - mejora el ExpirationDatePicker
 const ExpirationDatePicker = React.memo(({ value, onChange }) => {
   const [internalValue, setInternalValue] = useState('');
+
+  // Sincronizar cuando el valor externo cambia
   useEffect(() => {
     if (value) {
       try {
         const date = new Date(value);
         if (!isNaN(date.getTime())) {
-          const year = date.getFullYear();
-          const month = String(date.getMonth() + 1).padStart(2, '0');
-          const day = String(date.getDate()).padStart(2, '0');
-          const formattedDate = `${year}-${month}-${day}`;
+          // Formatear para UI5 DatePicker (formato que UI5 espera)
+          const formattedDate = formatDateForUI5(date);
           setInternalValue(formattedDate);
         }
       } catch (error) {
         console.error('Error parsing date:', error);
+        setInternalValue('');
       }
     } else {
       setInternalValue('');
     }
   }, [value]);
 
-  const handleChange = (e) => {
-    const rawDate = e.target.value;
-    if (rawDate) {
-      try {
-        const date = new Date(rawDate);
-        if (!isNaN(date.getTime())) {
-          const isoDate = new Date(Date.UTC(
-            date.getFullYear(),
-            date.getMonth(),
-            date.getDate(),
-            10, 0, 0, 0
-          )).toISOString();
-          if (onChange) onChange(isoDate);
-        } else {
-          if (onChange) onChange(null);
-        }
-      } catch (error) {
-        if (onChange) onChange(null);
-      }
-    } else {
-      if (onChange) onChange(null);
-    }
+  // Función para formatear fecha para UI5 DatePicker
+  const formatDateForUI5 = (date) => {
+    // UI5 DatePicker espera formato: "Nov 11, 2025"
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
   };
 
-  const getPlaceholder = () => {
-    if (value) {
+  // Función para parsear fecha de UI5 DatePicker
+  const parseDateFromUI5 = (ui5DateString) => {
+    try {
+      // Convertir "Nov 11, 2025" a Date object
+      const date = new Date(ui5DateString);
+      if (!isNaN(date.getTime())) {
+        return date.toISOString();
+      }
+    } catch (error) {
+      console.error('Error parsing UI5 date:', error);
+    }
+    return null;
+  };
+
+  const handleChange = (e) => {
+    const selectedValue = e.detail.value;
+    console.log('DatePicker cambio (detail.value):', selectedValue);
+    
+    if (selectedValue) {
       try {
-        const date = new Date(value);
-        return !isNaN(date.getTime()) ? date.toLocaleDateString() : "Seleccionar fecha...";
-      } catch {
-        return "Seleccionar fecha...";
+        // Convertir el formato de UI5 ("Nov 11, 2025") a ISO
+        const isoDate = parseDateFromUI5(selectedValue);
+        console.log('DatePicker cambio (ISO):', isoDate);
+        
+        if (isoDate) {
+          // Actualizar estado interno con el formato de UI5
+          setInternalValue(selectedValue);
+          
+          if (onChange) {
+            onChange(isoDate);
+          }
+        } else {
+          throw new Error('No se pudo convertir la fecha');
+        }
+      } catch (error) {
+        console.error('Error creating ISO date:', error);
+        setInternalValue('');
+        if (onChange) {
+          onChange(null);
+        }
+      }
+    } else {
+      // Fecha fue limpiada
+      setInternalValue('');
+      if (onChange) {
+        onChange(null);
       }
     }
-    return "Seleccionar fecha...";
   };
 
   return (
@@ -144,24 +170,28 @@ const ExpirationDatePicker = React.memo(({ value, onChange }) => {
         value={internalValue}
         onChange={handleChange}
         style={{ width: '90%' }}
-        placeholder={getPlaceholder()}
+        placeholder="Seleccionar fecha..."
       />
     </div>
   );
 });
-
+// En TreeTable.jsx - mejora el TimestampDateTimePicker
 const TimestampDateTimePicker = React.memo(({ value, onChange }) => {
   const [internalValue, setInternalValue] = useState('');
+
   useEffect(() => {
     if (value) {
       try {
         const date = new Date(value);
         if (!isNaN(date.getTime())) {
-          const isoString = date.toISOString();
-          setInternalValue(isoString);
+          // UI5 DateTimePicker espera formato local
+          const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+          const localISO = localDate.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
+          setInternalValue(localISO);
         }
       } catch (error) {
         console.error('Error parsing timestamp:', error);
+        setInternalValue('');
       }
     } else {
       setInternalValue('');
@@ -169,9 +199,33 @@ const TimestampDateTimePicker = React.memo(({ value, onChange }) => {
   }, [value]);
 
   const handleChange = (e) => {
-    const selectedDateTime = e.detail ? e.detail.value : e.target?.value;
-    setInternalValue(selectedDateTime || '');
-    if (onChange) onChange(selectedDateTime || null);
+    const selectedValue = e.detail.value;
+    console.log('DateTimePicker cambio (detail.value):', selectedValue);
+    
+    if (selectedValue) {
+      try {
+        // UI5 DateTimePicker devuelve en formato local, convertir a ISO
+        const isoDate = new Date(selectedValue).toISOString();
+        console.log('DateTimePicker cambio (ISO):', isoDate);
+        
+        setInternalValue(selectedValue);
+        
+        if (onChange) {
+          onChange(isoDate);
+        }
+      } catch (error) {
+        console.error('Error creating ISO timestamp:', error);
+        setInternalValue('');
+        if (onChange) {
+          onChange(null);
+        }
+      }
+    } else {
+      setInternalValue('');
+      if (onChange) {
+        onChange(null);
+      }
+    }
   };
 
   return (
@@ -185,7 +239,6 @@ const TimestampDateTimePicker = React.memo(({ value, onChange }) => {
     </div>
   );
 });
-
 // -----------------------------
 // Componente principal (merge)
 // -----------------------------
@@ -213,30 +266,46 @@ const TreeTable = ({
   }, [isEditing]);
 
   const handleInputChange = useCallback((e, accessor) => {
-    const rawValue = e.target.value;
-    if (Object.keys(editValuesRef.current).length > 50) {
+  const rawValue = e.target.value;
+  
+  console.log(`📝 handleInputChange - accessor: ${accessor}, rawValue:`, rawValue);
+
+  if (Object.keys(editValuesRef.current).length > 50) {
       const recentChanges = Object.entries(editValuesRef.current)
-        .slice(-20)
-        .reduce((acc, [key, value]) => { acc[key] = value; return acc; }, {});
+          .slice(-20)
+          .reduce((acc, [key, value]) => {
+              acc[key] = value;
+              return acc;
+          }, {});
       editValuesRef.current = recentChanges;
-    }
-
-    const numericFields = [
-      'snapshot_id', 'underlying_id', 'option_id',
-      'strike', 'bid', 'ask', 'iv', 'delta', 'gamma', 'theta', 'vega'
-    ];
-
-    let storageValue;
-    if (numericFields.includes(accessor)) {
+  }
+  
+  const numericFields = [
+    'snapshot_id', 'underlying_id', 'option_id',
+    'strike', 'bid', 'ask', 'iv', 'delta', 'gamma', 'theta', 'vega'
+  ];
+  
+  let storageValue;
+  
+  if (numericFields.includes(accessor)) {
       storageValue = rawValue === '' ? null : Number(rawValue);
-      if (isNaN(storageValue)) storageValue = rawValue;
-    } else {
+      if (isNaN(storageValue)) {
+          storageValue = rawValue; // Mantener como string si no es número válido
+      }
+  } else {
       storageValue = rawValue;
-    }
-
-    editValuesRef.current[accessor] = storageValue;
-    setRefresh(prev => prev + 1);
-  }, []);
+  }
+  
+  console.log(`📝 Cambio en ${accessor}:`, { 
+      rawValue, 
+      storageValue,
+      previous: editValuesRef.current[accessor],
+      type: typeof storageValue
+  });
+  
+  editValuesRef.current[accessor] = storageValue;
+  setRefresh(prev => prev + 1);
+}, []);
 
   const handleTypeChange = useCallback((newValue, accessor) => {
     // newValue vendrá como 'C'/'P' por el TypeComboBox
@@ -244,10 +313,15 @@ const TreeTable = ({
     setRefresh(prev => prev + 1);
   }, []);
 
-  const handleDateChange = useCallback((newValue, accessor) => {
-    editValuesRef.current[accessor] = newValue;
-    setRefresh(prev => prev + 1);
-  }, []);
+const handleDateChange = useCallback((newValue, accessor) => {
+  console.log(`📝 handleDateChange - accessor: ${accessor}, newValue:`, newValue, 'type:', typeof newValue);
+  
+  editValuesRef.current[accessor] = newValue;
+  setRefresh(prev => prev + 1);
+  
+  // Debug: ver qué hay en editValuesRef después del cambio
+  console.log('📝 editValuesRef después del cambio:', editValuesRef.current);
+}, []);
 
   const isCellEditable = (rowId, rowLevel, fieldType = 'all') => {
     if (!isEditing || rowId !== selectedRowId) return false;
@@ -268,31 +342,47 @@ const TreeTable = ({
       : originalValue;
   };
 
-  const handleSaveTrigger = () => {
-    if (onSave) {
+const handleSaveTrigger = () => {
+  if (onSave) {
       const findRow = (nodes) => {
-        for (const node of nodes) {
-          if (node.id === selectedRowId) return node;
-          if (node.subRows) {
-            const found = findRow(node.subRows);
-            if (found) return found;
+          for (const node of nodes) {
+              if (node.id === selectedRowId) return node;
+              if (node.subRows) {
+                  const found = findRow(node.subRows);
+                  if (found) return found;
+              }
           }
-        }
-        return null;
+          return null;
       };
 
       const originalRow = findRow(data);
+      
       if (originalRow) {
-        const finalData = {
-          ...originalRow,
-          ...editValuesRef.current,
-        };
-        onSave(finalData);
+          // CORRECCIÓN: Mezclar correctamente los datos
+          const finalData = { 
+              ...originalRow,
+              ...editValuesRef.current,
+          };
+          
+          console.log("💾 handleSaveTrigger - VERIFICACIÓN COMPLETA:", {
+              original: originalRow,
+              cambios: editValuesRef.current,
+              final: finalData,
+              // Verificación específica de campos clave
+              strikeEnCambios: 'strike' in editValuesRef.current,
+              strikeEnCambiosValor: editValuesRef.current.strike,
+              bidEnCambios: 'bid' in editValuesRef.current,
+              bidEnCambiosValor: editValuesRef.current.bid,
+              rightEnCambios: 'right' in editValuesRef.current,
+              rightEnCambiosValor: editValuesRef.current.right
+          });
+          
+          onSave(finalData);
       } else {
-        console.error("No se encontró la fila original para guardar");
+          console.error("❌ No se encontró la fila original para guardar");
       }
-    }
-  };
+  }
+};
 
   // Crear / Eliminar: sólo redirigen al padre con la fila seleccionada (si existe)
   const handleCreate = () => {
@@ -449,23 +539,33 @@ const TreeTable = ({
         }
       },
       {
-        Header: 'Expira',
-        accessor: 'expiration',
-        hAlign: 'Center',
-        Cell: ({ cell, row }) => {
-          if (row.original.level === 0) return '';
-          if (isCellEditable(row.original.id, row.original.level, 'expiration')) {
-            const currentValue = getCurrentValue(cell.value, 'expiration');
-            return (
-              <ExpirationDatePicker
-                value={currentValue}
-                onChange={(newValue) => handleDateChange(newValue, 'expiration')}
-              />
-            );
-          }
-          return cell.value ? <span style={{ fontSize: '0.85rem' }}>{new Date(cell.value).toLocaleDateString()}</span> : '';
-        }
-      },
+  Header: 'Expira',
+  accessor: 'expiration',
+  hAlign: 'Center',
+  Cell: ({ cell, row }) => {
+    if (row.original.level === 0) return '';
+    
+    console.log('🔍 Columna Expira - cell.value:', cell.value, 'row.original.id:', row.original.id);
+    
+    if (isCellEditable(row.original.id, row.original.level, 'expiration')) {
+      const currentValue = getCurrentValue(cell.value, 'expiration');
+      
+      
+      return (
+        <ExpirationDatePicker
+          value={currentValue}
+          onChange={(newValue) => {
+            
+            handleDateChange(newValue, 'expiration');
+          }}
+        />
+      );
+    }
+    
+    return cell.value ? 
+      <span style={{fontSize:'0.85rem'}}>{new Date(cell.value).toLocaleDateString()}</span> : '';
+  }
+},
       {
         Header: 'Bid',
         accessor: 'bid',
@@ -567,17 +667,6 @@ const TreeTable = ({
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 1rem', gap: '0.5rem' }}>
         <div style={{ fontWeight: 700 }}>OptionChain Snapshots</div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <Button onClick={handleCreate} design="Transparent">Crear</Button>
-          <Button onClick={handleDelete} design="Transparent">Eliminar</Button>
-          {/* Si quieres, puedes mostrar botones Save/Cancel cuando isEditing */}
-          {isEditing ? (
-            <>
-              <Button onClick={handleSaveTrigger} design="Emphasized">Guardar</Button>
-              <Button onClick={onCancel}>Cancelar</Button>
-            </>
-          ) : null}
-        </div>
       </div>
 
       <button id="btn-save-internal" style={{ display: 'none' }} onClick={handleSaveTrigger}></button>

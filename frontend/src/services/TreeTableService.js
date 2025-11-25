@@ -2,46 +2,72 @@
 
 const BASE_URL = 'http://localhost:4004/api/Chain/Snapshot/crud';
 
-// Función auxiliar para limpiar el objeto
-// Función auxiliar para limpiar el objeto - VERSIÓN CORREGIDA
-// Función auxiliar para limpiar el objeto - VERSIÓN CORREGIDA
-// Función auxiliar para limpiar el objeto - VERSIÓN CORREGIDA
+// En TreeTableService.js - modifica la función cleanRowData
 const cleanRowData = (row) => {
     console.log("🔄 Datos originales para limpiar:", row);
     
-    const cleanData = {
-        // Campos financieros principales
-        strike: row.strike != null ? Number(row.strike) : undefined,
-        bid: row.bid != null ? Number(row.bid) : undefined,
-        ask: row.ask != null ? Number(row.ask) : undefined,
-        iv: row.iv != null ? Number(row.iv) : undefined,
-        delta: row.delta != null ? Number(row.delta) : undefined,
-        gamma: row.gamma != null ? Number(row.gamma) : undefined,
-        theta: row.theta != null ? Number(row.theta) : undefined,
-        vega: row.vega != null ? Number(row.vega) : undefined,
+    // Función auxiliar para normalizar fechas
+    const normalizeDate = (dateValue) => {
+        if (!dateValue) return undefined;
         
-        // CORRECCIÓN: Usar row.right directamente, no row.type
-        right: row.right || undefined, // ← ESTA ES LA LÍNEA CLAVE
+        console.log("📅 Normalizando fecha:", dateValue, "Tipo:", typeof dateValue);
         
-        // Campos de fecha
-        ts: row.ts ? (() => {
-            try {
-                const date = new Date(row.ts);
-                return !isNaN(date.getTime()) ? date.toISOString() : undefined;
-            } catch (error) {
-                console.error('Error convirtiendo ts a ISO:', error);
-                return undefined;
+        try {
+            // Si ya es string ISO, verificar que sea válido
+            if (typeof dateValue === 'string') {
+                const testDate = new Date(dateValue);
+                if (!isNaN(testDate.getTime())) {
+                    console.log("✅ Fecha ya es ISO válida:", dateValue);
+                    return dateValue;
+                } else {
+                    console.log("❌ Fecha no es ISO válida, intentando parsear:", dateValue);
+                }
             }
-        })() : undefined,
-        
-        // IDs
-        snapshot_id: row.snapshot_id != null ? Number(row.snapshot_id) : undefined,
-        underlying_id: row.underlying_id != null ? Number(row.underlying_id) : undefined,
-        option_id: row.option_id != null ? Number(row.option_id) : undefined
+            
+            // Para otros casos, crear nuevo Date
+            const date = new Date(dateValue);
+            if (!isNaN(date.getTime())) {
+                const isoDate = date.toISOString();
+                console.log("✅ Fecha normalizada a ISO:", isoDate);
+                return isoDate;
+            } else {
+                console.log("❌ No se pudo normalizar la fecha:", dateValue);
+            }
+        } catch (error) {
+            console.error('Error normalizando fecha:', error, "Valor:", dateValue);
+        }
+        return undefined;
     };
 
-    // Limpiar campos undefined/null
-        Object.keys(cleanData).forEach(key => {
+    const cleanData = {
+        // Campos financieros principales - CORREGIDOS
+        strike: row.strike != null ? (isNaN(Number(row.strike)) ? undefined : Number(row.strike)) : undefined,
+        bid: row.bid != null ? (isNaN(Number(row.bid)) ? undefined : Number(row.bid)) : undefined,
+        ask: row.ask != null ? (isNaN(Number(row.ask)) ? undefined : Number(row.ask)) : undefined,
+        iv: row.iv != null ? (isNaN(Number(row.iv)) ? undefined : Number(row.iv)) : undefined,
+        delta: row.delta != null ? (isNaN(Number(row.delta)) ? undefined : Number(row.delta)) : undefined,
+        gamma: row.gamma != null ? (isNaN(Number(row.gamma)) ? undefined : Number(row.gamma)) : undefined,
+        theta: row.theta != null ? (isNaN(Number(row.theta)) ? undefined : Number(row.theta)) : undefined,
+        vega: row.vega != null ? (isNaN(Number(row.vega)) ? undefined : Number(row.vega)) : undefined,
+        
+        // Campo tipo - CORREGIDO: usar row.right en lugar de row.type
+        right: row.right || (row.type === 'Call' ? 'C' : row.type === 'Put' ? 'P' : undefined),
+        
+        // FECHAS CORREGIDAS
+        ts: normalizeDate(row.ts),
+        expiration: normalizeDate(row.expiration),
+        
+        // IDs - CORREGIDOS
+        snapshot_id: row.snapshot_id != null ? (isNaN(Number(row.snapshot_id)) ? undefined : Number(row.snapshot_id)) : undefined,
+        underlying_id: row.underlying_id != null ? (isNaN(Number(row.underlying_id)) ? undefined : Number(row.underlying_id)) : undefined,
+        option_id: row.option_id != null ? (isNaN(Number(row.option_id)) ? undefined : Number(row.option_id)) : undefined
+    };
+
+    // DEBUG: Verificar cada campo antes de limpiar
+    console.log("🔍 Datos ANTES de limpiar undefined:", cleanData);
+    
+    // Limpiar campos undefined/null - PERO mantener 0 y false
+    Object.keys(cleanData).forEach(key => {
         if (cleanData[key] === undefined || cleanData[key] === null) {
             delete cleanData[key];
         }
@@ -50,7 +76,6 @@ const cleanRowData = (row) => {
     console.log("🔄 Datos limpios para enviar:", cleanData);
     return cleanData;
 };
-
 // Función segura para extraer mensajes de error
 const getErrorMessage = (error) => {
     try {
