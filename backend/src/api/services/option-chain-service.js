@@ -2,6 +2,8 @@ const mongoose = require('mongoose');
 const OptionChainSnapshot = require('../models/OptionChainSnapshot');
 const OptionChainSnapshotItem = require('../models/OptionChainSnapshotItem');
 
+// -------- Crud de Option Chains (backend) --------
+
 const processCrud = async (req) => {
     try {
         console.log("🔍 DEBUG Service - req.data:", req.data);

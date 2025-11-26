@@ -60,53 +60,93 @@ export default function App() {
     setSearchTerm(e.target.value);
   };
 
-  const filteredData = useMemo(() => {
-    if (!searchTerm.trim()) return data;
+const filteredData = useMemo(() => {
+  if (!searchTerm || !String(searchTerm).trim()) return data;
 
-    const lowercasedSearch = searchTerm.toLowerCase().trim();
+  const term = String(searchTerm).toLowerCase().trim();
 
-    return data
-      .map(parent => {
-        const searchableFields = [
-          'snapshot_id', 'underlying_id', 'option_id', 'hierarchyNode',
-          'strike', 'type', 'right', 'description'
-        ];
+  // Serializa recursivamente valores u objetos a string buscable
+  const serialize = (val, depth = 0) => {
+    if (val == null) return '';
+    if (depth > 6) return ''; // evitar loops y estructuras muy profundas
+    const t = typeof val;
+    if (t === 'string' || t === 'number' || t === 'boolean') {
+      return String(val).toLowerCase();
+    }
+    if (Array.isArray(val)) {
+      return val.map(v => serialize(v, depth + 1)).join(' ');
+    }
+    if (t === 'object') {
+      return Object.keys(val)
+        .sort()
+        .map(k => serialize(val[k], depth + 1))
+        .join(' ');
+    }
+    return '';
+  };
 
-        // Buscar en campos específicos para mejor performance
-        const parentMatches = searchableFields.some(field =>
-          parent[field] != null &&
-          String(parent[field]).toLowerCase().includes(lowercasedSearch)
-        );
 
-        const matchingChildren = parent.subRows ? parent.subRows.filter(child =>
-          searchableFields.some(field =>
-            child[field] != null &&
-            String(child[field]).toLowerCase().includes(lowercasedSearch)
-          )
-        ) : [];
+  // Campos a buscar específicamente (optimización)
+  const SEARCHABLE_FIELDS = [
+  "snapshot_id",
+  "underlying_id",
+  "option_id",
+  "strike",
+  "right",
+  "expiration",
+  "bid",
+  "ask",
+  "iv",
+  "delta",
+  "gamma",
+  "theta",
+  "vega",
+  "rho",
+];
 
-        if (parentMatches || matchingChildren.length > 0) {
-          return {
-            ...parent,
-            subRows: parentMatches ? parent.subRows : matchingChildren
-          };
-        }
+const matches = (obj) => {
+  if (!obj) return false;
 
-        return null;
-      })
-      .filter(Boolean);
-  }, [data, searchTerm]);
+  return SEARCHABLE_FIELDS.some(field => {
+    if (obj[field] == null) return false;
+    return String(obj[field]).toLowerCase().includes(term);
+  });
+};
+
+
+  // Recorremos los padres y decidimos qué devolver
+  return (data || [])
+    .map(parent => {
+      // Si el padre coincide en cualquier campo -> devolver padre completo
+      if (matches(parent)) {
+        return parent;
+      }
+
+      // Sino: filtrar hijos que coincidan
+      const matchingChildren = (parent.subRows || []).filter(child => matches(child));
+
+      if (matchingChildren.length > 0) {
+        // Devolver el padre pero con solo los hijos que coinciden
+        return {
+          ...parent,
+          // Mantener otras propiedades del padre y sólo reemplazar subRows
+          subRows: matchingChildren
+        };
+      }
+
+      // No coincide ni padre ni hijos -> omitir
+      return null;
+    })
+    .filter(Boolean);
+}, [data, searchTerm]);
+
+
 
   // ========= SELECCIÓN (de tu código, con ajuste para evitar seleccionar en edición) =========
   const handleRowSelect = (row) => {
     if (!isEditing) {
       console.log("Fila seleccionada:", row);
       setSelectedRow(row);
-
-      // Si es un padre, deshabilitar el botón de edición o mostrar mensaje
-      if (row.level === 0) {
-        console.log("⚠️ Los registros padres no son editables");
-      }
     }
   };
 

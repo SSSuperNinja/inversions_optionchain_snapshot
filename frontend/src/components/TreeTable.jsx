@@ -13,6 +13,191 @@ import {
 } from '@ui5/webcomponents-react';
 import '@ui5/webcomponents-icons/dist/AllIcons.js';
 
+import InstrumentsService from '../services/InstrumentsService';
+
+//---------------------- Traer datos para ComboBox de Underlying Instruments ----------------------
+
+// Componente ComboBox para Underlying Instruments - VERSIÓN SIMPLIFICADA
+const UnderlyingComboBox = React.memo(({ value, onChange }) => {
+  const [instruments, setInstruments] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedText, setSelectedText] = useState('');
+
+  useEffect(() => {
+    const loadInstruments = async () => {
+      setLoading(true);
+      try {
+        const instrumentsList = await InstrumentsService.getInstrumentsForComboBox();
+        setInstruments(instrumentsList);
+        
+        // Encontrar el texto del valor actual
+        const currentInstrument = instrumentsList.find(instr => instr.id == value);
+        if (currentInstrument) {
+          setSelectedText(currentInstrument.text);
+        } else if (value) {
+          setSelectedText(`ID: ${value}`); // Fallback si no se encuentra
+        }
+      } catch (error) {
+        console.error('Error loading instruments:', error);
+        // Usar mocks en caso de error
+        setInstruments([
+          { id: 999999999, text: "AAPL (999999999)" },
+          { id: 888888888, text: "TSLA (888888888)" }
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadInstruments();
+  }, [value]); // Agregar value como dependencia
+
+  const handleChange = (e) => {
+    // SOLUCIÓN SIMPLIFICADA: Usar el texto directamente y buscar el ID
+    const selectedText = e.target.value;
+    console.log('UnderlyingComboBox - texto seleccionado:', selectedText);
+    
+    if (!selectedText) {
+      if (onChange) onChange(null);
+      return;
+    }
+
+    // Buscar el instrument por el texto
+    const selectedInstrument = instruments.find(instr => instr.text === selectedText);
+    if (selectedInstrument && onChange) {
+      console.log('UnderlyingComboBox - instrumento encontrado:', selectedInstrument.id);
+      onChange(selectedInstrument.id);
+    } else {
+      console.warn('UnderlyingComboBox - instrumento no encontrado para texto:', selectedText);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+        <ComboBox
+          value={String(selectedText || '')} // ← CONVERTIR A STRING
+          onChange={handleChange}
+          style={{ width: '90%', textAlign: 'center' }}
+          placeholder={loading ? "Cargando instruments..." : "Seleccionar instrumento..."}
+          loading={loading}
+        >
+        {instruments.map(instrument => (
+          <ComboBoxItem 
+            key={`instrument-${instrument.id}`} // KEY ÚNICO Y EXPLÍCITO
+            text={instrument.text}
+          />
+        ))}
+      </ComboBox>
+    </div>
+  );
+});
+
+// ------------------- Combo para elegir Snapshot (valores únicos sacados del data de la tabla) -------------------
+const SnapshotComboBox = React.memo(({ value, onChange, snapshotOptions, clearOption }) => {
+  const [selectedText, setSelectedText] = useState('');
+
+  useEffect(() => {
+    const found = snapshotOptions.find(s => String(s) === String(value));
+    if (found) setSelectedText(String(found));
+    else setSelectedText(value != null ? String(value) : '');
+  }, [value, snapshotOptions]);
+
+  const handleChange = (e) => {
+    const txt = e.target.value;
+    // Convertir texto a número (esperamos snapshot_id numérico)
+    const parsed = txt === '' ? null : Number(txt);
+    console.log('SnapshotComboBox - seleccionado:', txt, '=>', parsed);
+    // Primero limpiar option_id (cascada)
+    if (clearOption) clearOption();
+    if (onChange) onChange(parsed);
+  };
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+      <ComboBox
+        value={String(selectedText || '')}
+        onChange={handleChange}
+        style={{ width: '90%', textAlign: 'center' }}
+        placeholder="Seleccionar snapshot..."
+      >
+        {snapshotOptions.map(opt => (
+          <ComboBoxItem key={`snap-${opt}`} text={String(opt)} />
+        ))}
+      </ComboBox>
+    </div>
+  );
+});
+
+// Combo para elegir Option ID filtrado por snapshot_id seleccionado
+const OptionIdComboBox = React.memo(({ value, onChange, snapshotId, data }) => {
+  const [options, setOptions] = useState([]);
+  const [selectedText, setSelectedText] = useState('');
+
+  useEffect(() => {
+    // construir lista única de underlying_id de padres con snapshot_id == snapshotId
+    const opts = new Set();
+
+    try {
+      if (snapshotId == null) {
+        setOptions([]);
+        return;
+      }
+
+      // Recorremos "data" (lista de padres)
+      (data || []).forEach(parent => {
+        try {
+          if (parent && Number(parent.snapshot_id) === Number(snapshotId)) {
+            // Si el padre tiene underlying_id, lo agregamos
+            if (parent.underlying_id != null) {
+              opts.add(Number(parent.underlying_id));
+            }
+            // También si dentro del parent hay subRows que referencian underlying_id, podríamos incluirlos (opcional)
+            // (descomenta si lo necesitas)
+            // (parent.subRows || []).forEach(ch => { if (ch && ch.underlying_id != null) opts.add(Number(ch.underlying_id)); });
+          }
+        } catch (e) {
+          console.warn('OptionIdComboBox: error leyendo parent', parent, e);
+        }
+      });
+
+      // Convertir Set a Array y ordenar
+      const arr = Array.from(opts).sort((a, b) => a - b);
+      setOptions(arr);
+    } catch (e) {
+      console.error('OptionIdComboBox error building options', e);
+      setOptions([]);
+    }
+  }, [snapshotId, data]);
+
+  useEffect(() => {
+    if (value != null) setSelectedText(String(value));
+    else setSelectedText('');
+  }, [value]);
+
+  const handleChange = (e) => {
+    const txt = e.target.value;
+    const parsed = txt === '' ? null : Number(txt);
+    console.log('OptionIdComboBox - seleccionado:', txt, '=>', parsed);
+    if (onChange) onChange(parsed);
+  };
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+      <ComboBox
+        value={String(selectedText || '')}
+        onChange={handleChange}
+        style={{ width: '90%', textAlign: 'center' }}
+        placeholder={options.length ? "Seleccionar option_id (underlying)..." : "No hay underlying_id para este snapshot"}
+      >
+        {options.map(opt => (
+          <ComboBoxItem key={`under-${opt}`} text={String(opt)} />
+        ))}
+      </ComboBox>
+    </div>
+  );
+});
+
+
 // -----------------------------
 // Reuso de tus componentes locales (StableInput, TypeComboBox, ExpirationDatePicker, TimestampDateTimePicker)
 // -----------------------------
@@ -39,48 +224,44 @@ const StableInput = React.memo(({ value, type, onChange, ...props }) => {
   );
 });
 
+// Componente ComboBox para Tipo - VERSIÓN CORREGIDA
 const TypeComboBox = React.memo(({ value, onChange }) => {
-  const comboRef = useRef(null);
-
-  useEffect(() => {
-    if (comboRef.current) {
-      const displayValue = value === 'C' ? 'Call' : value === 'P' ? 'Put' : (value === 'Call' || value === 'Put' ? value : '');
-      comboRef.current.value = displayValue;
-    }
-  }, [value]);
-
-  const handleChange = (e) => {
-    const selectedText = e.target.value;
-    // Soporta mapas: 'Call'/'Put' -> 'C'/'P' y también deja 'Call'/'Put' si quien consume espera ese formato
-    const internalValueChar = selectedText === 'Call' ? 'C' : selectedText === 'Put' ? 'P' : '';
-    // Llamar onChange con el formato preferido: preferimos 'C'/'P' porque tu componente lo usa,
-    // pero si el row original usaba 'type' en palabras, tu handler puede detectar eso.
-    if (onChange && internalValueChar) onChange(internalValueChar);
-  };
-
   const getDisplayValue = () => {
     if (value === 'C') return 'Call';
     if (value === 'P') return 'Put';
-    if (value === 'Call' || value === 'Put') return value;
     return '';
   };
+
+  const handleChange = (e) => {
+    // SOLUCIÓN SIMPLIFICADA: Usar e.target.value directamente
+    const selectedText = e.target.value;
+    console.log('TypeComboBox - texto seleccionado:', selectedText);
+    
+    // Convertir a valor interno
+    const internalValue = selectedText === 'Call' ? 'C' : 
+                         selectedText === 'Put' ? 'P' : '';
+    
+    if (onChange) {
+      onChange(internalValue);
+    }
+  };
+
+  const displayValue = getDisplayValue();
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
       <ComboBox
-        ref={comboRef}
-        value={getDisplayValue()}
+        value={displayValue}
         onChange={handleChange}
         style={{ width: '90%', textAlign: 'center' }}
-        placeholder={getDisplayValue() || "Seleccionar tipo..."}
+        placeholder={displayValue || "Seleccionar tipo..."}
       >
-        <ComboBoxItem text="Call" />
-        <ComboBoxItem text="Put" />
+        <ComboBoxItem key="call-option" text="Call" />
+        <ComboBoxItem key="put-option" text="Put" />
       </ComboBox>
     </div>
   );
 });
-
 // En TreeTable.jsx - mejora el ExpirationDatePicker
 const ExpirationDatePicker = React.memo(({ value, onChange }) => {
   const [internalValue, setInternalValue] = useState('');
@@ -265,20 +446,23 @@ const TreeTable = ({
     return () => {};
   }, [isEditing]);
 
-  const handleInputChange = useCallback((e, accessor) => {
-  const rawValue = e.target.value;
+const handleInputChange = useCallback((eOrValue, accessor) => {
+  let rawValue;
   
-  console.log(`📝 handleInputChange - accessor: ${accessor}, rawValue:`, rawValue);
-
-  if (Object.keys(editValuesRef.current).length > 50) {
-      const recentChanges = Object.entries(editValuesRef.current)
-          .slice(-20)
-          .reduce((acc, [key, value]) => {
-              acc[key] = value;
-              return acc;
-          }, {});
-      editValuesRef.current = recentChanges;
+  // Manejar tanto eventos como valores directos
+  if (typeof eOrValue === 'object' && eOrValue.target) {
+    // Es un evento de Input
+    rawValue = eOrValue.target.value;
+  } else {
+    // Es un valor directo (del ComboBox)
+    rawValue = eOrValue;
   }
+  
+  console.log(`📝 Cambio en ${accessor}:`, { 
+    rawValue, 
+    tipoRaw: typeof rawValue,
+    esDeComboBox: !(typeof eOrValue === 'object' && eOrValue.target)
+  });
   
   const numericFields = [
     'snapshot_id', 'underlying_id', 'option_id',
@@ -288,20 +472,16 @@ const TreeTable = ({
   let storageValue;
   
   if (numericFields.includes(accessor)) {
-      storageValue = rawValue === '' ? null : Number(rawValue);
-      if (isNaN(storageValue)) {
-          storageValue = rawValue; // Mantener como string si no es número válido
-      }
-  } else {
+    storageValue = rawValue === '' ? null : Number(rawValue);
+    if (isNaN(storageValue)) {
+      console.warn(`⚠️ Valor no numérico para ${accessor}:`, rawValue);
       storageValue = rawValue;
+    }
+  } else {
+    storageValue = rawValue;
   }
   
-  console.log(`📝 Cambio en ${accessor}:`, { 
-      rawValue, 
-      storageValue,
-      previous: editValuesRef.current[accessor],
-      type: typeof storageValue
-  });
+  console.log(`📝 Valor final para ${accessor}:`, storageValue);
   
   editValuesRef.current[accessor] = storageValue;
   setRefresh(prev => prev + 1);
@@ -446,37 +626,106 @@ const handleSaveTrigger = () => {
 
   const columns = useMemo(() => {
     // id columns (padre/hijo)
-    const idColumns = [
-      {
-        Header: 'ID Snapshot',
-        accessor: 'snapshot_id',
-        hAlign: 'Center',
-        Cell: ({ cell, row }) => {
-          const shouldShow = row.original.level === 0 || isCellEditable(row.original.id, row.original.level);
-          if (!shouldShow) return '';
-          if (isCellEditable(row.original.id, row.original.level, 'snapshot_id')) {
-            return renderEditableInput(cell.value, 'snapshot_id', "Number");
-          }
-          return cell.value;
+const idColumns = [
+  {
+    Header: 'ID Snapshot',
+    accessor: 'snapshot_id',
+    hAlign: 'Center',
+    Cell: ({ cell, row }) => {
+      // Mostrar para ambos niveles; en hijos será editable como combo
+      const original = row.original;
+      const isParent = original.level === 0;
+      const currentValue = getCurrentValue(cell.value, 'snapshot_id');
+
+      // Snapshot options sacadas del prop data (únicos)
+      const snapshotOptions = Array.from(new Set((data || []).map(d => d.snapshot_id).filter(Boolean)));
+
+      if (isCellEditable(original.id, original.level, 'snapshot_id')) {
+  if (!isParent) {
+    return (
+      <SnapshotComboBox
+        value={currentValue}
+        onChange={(newVal) => {
+          editValuesRef.current['snapshot_id'] = newVal;
+          editValuesRef.current['option_id'] = null;
+          setRefresh(prev => prev + 1);
+        }}
+        snapshotOptions={snapshotOptions}
+        clearOption={() => {
+          editValuesRef.current['option_id'] = null;
+          setRefresh(prev => prev + 1);
+        }}
+      />
+    );
+  } else {
+    return renderEditableInput(cell.value, 'snapshot_id', "Number");
+  }
+}
+  if (!isParent && !isCellEditable(original.id, original.level, 'snapshot_id')) {
+  return ""; // celda vacía
+}
+      // No editable -> mostrar valor
+      return cell.value;
+    }
+  },
+  {
+    Header: 'Underlying/Option ID',
+    accessor: 'underlying_id',
+    id: 'id_column',
+    hAlign: 'Center',
+    Cell: ({ cell, row }) => {
+      const original = row.original;
+      const isParent = original.level === 0;
+      const displayId = isParent ? original.underlying_id : original.option_id;
+      const accessor = isParent ? 'underlying_id' : 'option_id';
+      const currentValue = getCurrentValue(displayId, accessor);
+
+      const shouldShow = original.level === 0 || isCellEditable(original.id, original.level);
+
+      if (!shouldShow) return '';
+
+      if (isCellEditable(original.id, original.level, accessor)) {
+        // Para padres, usar UnderlyingComboBox (instrumentos) - ya existe
+        if (isParent && accessor === 'underlying_id') {
+          return (
+            <UnderlyingComboBox 
+              value={currentValue}
+              onChange={(newValue) => handleInputChange(newValue, accessor)}
+            />
+          );
         }
-      },
-      {
-        Header: 'Underlying/Option ID',
-        accessor: 'underlying_id',
-        id: 'id_column',
-        hAlign: 'Center',
-        Cell: ({ cell, row }) => {
-          const displayId = row.original.level === 0 ? row.original.underlying_id : (row.original.option_id ?? row.original.underlying_id);
-          const accessor = row.original.level === 0 ? 'underlying_id' : 'option_id';
-          const shouldShow = row.original.level === 0 || isCellEditable(row.original.id, row.original.level);
-          if (!shouldShow) return '';
-          if (isCellEditable(row.original.id, row.original.level, accessor)) {
-            return renderEditableInput(displayId, accessor, "Number");
-          }
-          return displayId;
+
+        // Para hijos: usamos OptionIdComboBox que depende del snapshot_id actual
+        if (!isParent && accessor === 'option_id') {
+          // Determinar snapshotId: preferir el editValuesRef si usuario lo cambió,
+          // sino usar el original row.snapshot_id
+          const snapshotIdForChild = editValuesRef.current['snapshot_id'] !== undefined
+            ? editValuesRef.current['snapshot_id']
+            : original.snapshot_id;
+
+          return (
+            <OptionIdComboBox
+              value={currentValue}
+              onChange={(newVal) => {
+                // guardar option_id cuando cambie
+                editValuesRef.current['option_id'] = newVal;
+                setRefresh(prev => prev + 1);
+              }}
+              snapshotId={snapshotIdForChild}
+              data={data}
+            />
+          );
         }
+
+        // Fallback: input numérico para option_id si algo falla
+        return renderEditableInput(displayId, accessor, "Number");
       }
-    ];
+
+      return displayId;
+    }
+  }
+];
+
 
     const dateColumn = [
       {
@@ -648,14 +897,6 @@ const handleSaveTrigger = () => {
             return <span style={{ fontFamily: 'monospace', color: '#2b7c2b' }}>{cell.value}</span>;
           }
           return renderEditableInput(cell.value, 'vega', "Number");
-        }
-      },
-      {
-        Header: 'Estado',
-        accessor: 'status',
-        Cell: ({ cell }) => {
-          const value = cell.value || 'OK';
-          return <ObjectStatus state="Success">{value}</ObjectStatus>;
         }
       }
     ];
