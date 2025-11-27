@@ -1,5 +1,4 @@
-// src/App.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ShellBar,
   Card,
@@ -14,7 +13,7 @@ import {
 import '@ui5/webcomponents-icons/dist/AllIcons.js';
 
 import { TreeTableService } from './services/TreeTableService';
-import { TreeTable } from './components/TreeTable';
+import TreeTable from './components/TreeTable';
 import CreateChainDialog from './components/CreateChainDialog';
 import DeleteSnapshotDialog from './components/DeleteSnapshotDialog';
 import DeleteItemDialog from './components/DeleteItemDialog';
@@ -26,15 +25,17 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [selectedRow, setSelectedRow] = useState(null);
 
-  // ====== CREATE (Padre / Hijo) ======
+  // Estados para edición (de tu código)
+  const [isEditing, setIsEditing] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Estados para creación (de tu compañero)
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createType, setCreateType] = useState('parent');
 
-  // ====== DELETE PADRE ======
+  // Estados para eliminación (de tu compañero)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [parentToDelete, setParentToDelete] = useState(null);
-
-  // ====== DELETE HIJO ======
   const [deleteItemDialogOpen, setDeleteItemDialogOpen] = useState(false);
   const [childToDelete, setChildToDelete] = useState(null);
 
@@ -54,11 +55,101 @@ export default function App() {
     }
   };
 
-  const handleRowSelect = (row) => {
-    setSelectedRow(row);
+  // ========= BÚSQUEDA (de tu código) =========
+  const handleSearch = (e) => {
+    setSearchTerm(e.target.value);
   };
 
-  // ========= LLAMADA GENÉRICA AL BACK =========
+  const filteredData = useMemo(() => {
+    if (!searchTerm.trim()) return data;
+
+    const lowercasedSearch = searchTerm.toLowerCase().trim();
+
+    return data
+      .map(parent => {
+        const searchableFields = [
+          'snapshot_id', 'underlying_id', 'option_id', 'hierarchyNode',
+          'strike', 'type', 'right', 'description'
+        ];
+
+        // Buscar en campos específicos para mejor performance
+        const parentMatches = searchableFields.some(field =>
+          parent[field] != null &&
+          String(parent[field]).toLowerCase().includes(lowercasedSearch)
+        );
+
+        const matchingChildren = parent.subRows ? parent.subRows.filter(child =>
+          searchableFields.some(field =>
+            child[field] != null &&
+            String(child[field]).toLowerCase().includes(lowercasedSearch)
+          )
+        ) : [];
+
+        if (parentMatches || matchingChildren.length > 0) {
+          return {
+            ...parent,
+            subRows: parentMatches ? parent.subRows : matchingChildren
+          };
+        }
+
+        return null;
+      })
+      .filter(Boolean);
+  }, [data, searchTerm]);
+
+  // ========= SELECCIÓN (de tu código, con ajuste para evitar seleccionar en edición) =========
+  const handleRowSelect = (row) => {
+    if (!isEditing) {
+      console.log("Fila seleccionada:", row);
+      setSelectedRow(row);
+
+      // Si es un padre, deshabilitar el botón de edición o mostrar mensaje
+      if (row.level === 0) {
+        console.log("⚠️ Los registros padres no son editables");
+      }
+    }
+  };
+
+  // ========= EDICIÓN (de tu código) =========
+  const handleEdit = () => {
+    if (selectedRow) {
+      setIsEditing(true);
+    }
+  };
+
+  const handleSave = async (updatedData) => {
+    console.log("💾 Iniciando guardado con datos:", updatedData);
+
+    try {
+      const success = await TreeTableService.updateRow(updatedData);
+
+      if (success) {
+        console.log("✅ Guardado exitoso, recargando datos...");
+        setIsEditing(false);
+        setSelectedRow(null);
+
+        // Pequeño delay para asegurar que el backend procesó la actualización
+        setTimeout(() => {
+          loadData();
+        }, 500);
+
+      } else {
+        console.log("❌ Falló el guardado - Manteniendo modo edición");
+        // NO cerramos el modo edición para que el usuario pueda corregir
+      }
+    } catch (error) {
+      console.error("💥 Error en handleSave:", error);
+      // El error ya fue mostrado por TreeTableService
+    }
+  };
+
+  const handleCancel = () => {
+    setIsEditing(false);
+    setSelectedRow(null); // Limpiar selección
+    // No recargar datos inmediatamente, solo salir del modo edición
+  };
+
+  // ========= LLAMADA GENÉRICA AL BACK (de tu compañero) =========
   const callBackend = async (processType, body) => {
     const params = new URLSearchParams({
       ProcessType: processType,
@@ -83,11 +174,11 @@ export default function App() {
     return json.value || json;
   };
 
-  // ========= OPCIONES PARA COMBOS (CREATE) =========
+  // ========= OPCIONES PARA COMBOS (CREATE) (de tu compañero) =========
   const snapshotOptions = [...new Set(data.map((r) => r.snapshot_id).filter(Boolean))];
   const underlyingOptions = [...new Set(data.map((r) => r.underlying_id).filter(Boolean))];
 
-  // ========= CREATE: ABRIR / CERRAR =========
+  // ========= CREATE: ABRIR / CERRAR (de tu compañero) =========
   const handleOpenCreateDialog = () => {
     setCreateType('parent');
     setCreateDialogOpen(true);
@@ -97,7 +188,7 @@ export default function App() {
     setCreateDialogOpen(false);
   };
 
-  // ========= CREATE: CONFIRMAR (Padre / Hijo) =========
+  // ========= CREATE: CONFIRMAR (Padre / Hijo) (de tu compañero) =========
   const handleConfirmCreate = async (payload) => {
     try {
       if (payload.createType === 'parent') {
@@ -136,25 +227,27 @@ export default function App() {
     }
   };
 
-  // ========= DELETE: CLICK EN BOTÓN BORRAR =========
+  // ========= DELETE: CLICK EN BOTÓN BORRAR (de tu compañero, con ajuste para no borrar en edición) =========
   const handleDeleteClick = () => {
     if (!selectedRow) {
       console.warn('No hay fila seleccionada para borrar');
       return;
     }
 
-    if (selectedRow.level === 0) {
-      // PADRE
-      setParentToDelete(selectedRow);
-      setDeleteDialogOpen(true);
-    } else if (selectedRow.level === 1) {
-      // HIJO
-      setChildToDelete(selectedRow);
-      setDeleteItemDialogOpen(true);
+    if (!isEditing) {
+      if (selectedRow.level === 0) {
+        // PADRE
+        setParentToDelete(selectedRow);
+        setDeleteDialogOpen(true);
+      } else if (selectedRow.level === 1) {
+        // HIJO
+        setChildToDelete(selectedRow);
+        setDeleteItemDialogOpen(true);
+      }
     }
   };
 
-  // ====== HANDLERS PADRE ======
+  // ====== HANDLERS PADRE (de tu compañero) ======
   const handleCancelDeleteDialog = () => {
     setDeleteDialogOpen(false);
     setParentToDelete(null);
@@ -177,7 +270,7 @@ export default function App() {
     }
   };
 
-  // ====== HANDLERS HIJO ======
+  // ====== HANDLERS HIJO (de tu compañero) ======
   const handleCancelDeleteItemDialog = () => {
     setDeleteItemDialogOpen(false);
     setChildToDelete(null);
@@ -211,7 +304,7 @@ export default function App() {
     >
       <ShellBar
         primaryTitle="ChainOptions"
-        secondaryTitle="Análisis de Cadena (Vista Completa)"
+        secondaryTitle="Análisis de Cadena (Edición en Línea)"
         logo={<Icon name="chain-link" />}
         profile={<Icon name="customer" />}
       />
@@ -232,7 +325,7 @@ export default function App() {
             flexDirection: 'column'
           }}
         >
-          {/* --- BARRA DE HERRAMIENTAS --- */}
+          {/* --- BARRA DE HERRAMIENTAS DINÁMICA (de tu código, con integración de los botones de agregar/borrar) --- */}
           <FlexBox
             justifyContent={FlexBoxJustifyContent.SpaceBetween}
             alignItems={FlexBoxAlignItems.Center}
@@ -242,28 +335,73 @@ export default function App() {
             }}
           >
             <FlexBox style={{ gap: '0.5rem' }}>
-              <Button icon="add" design="Emphasized" onClick={handleOpenCreateDialog}>
-                Agregar
-              </Button>
-
-              <Button
-                icon="delete"
-                design="Transparent"
-                style={{ color: '#bb0000' }}
-                onClick={handleDeleteClick}
-              >
-                Borrar
-              </Button>
+              {/* Muestra botones distintos dependiendo si estás editando o no */}
+              {isEditing ? (
+                <>
+                  <Button
+                    icon="save"
+                    design="Emphasized"
+                    onClick={() => document.getElementById('btn-save-internal')?.click()}
+                    tooltip="Guardar cambios de la fila actual"
+                  >
+                    Guardar
+                  </Button>
+                  <Button
+                    icon="cancel"
+                    design="Transparent"
+                    onClick={handleCancel}
+                  >
+                    Cancelar
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button icon="add" design="Emphasized" onClick={handleOpenCreateDialog}>
+                    Agregar
+                  </Button>
+                  <Button
+                    icon="edit"
+                    disabled={!selectedRow}
+                    onClick={handleEdit}
+                    tooltip={selectedRow?.level === 0 ? "Editar Snapshot" : "Editar Opción"}
+                  >
+                    Editar
+                  </Button>
+                  <Button
+                    icon="delete"
+                    design="Transparent"
+                    style={{ color: selectedRow ? '#bb0000' : 'inherit' }}
+                    disabled={!selectedRow}
+                    onClick={handleDeleteClick}
+                  >
+                    Borrar
+                  </Button>
+                </>
+              )}
             </FlexBox>
 
             <div style={{ width: '300px' }}>
-              <Input icon={<Icon name="search" />} placeholder="Buscar..." />
+              <Input
+                icon={<Icon name="search" />}
+                placeholder="Buscar..."
+                disabled={isEditing}
+                value={searchTerm}
+                onChange={handleSearch}
+              />
             </div>
           </FlexBox>
 
           {/* --- TABLA --- */}
           <div style={{ flexGrow: 1, overflow: 'hidden' }}>
-            <TreeTable data={data} loading={loading} onRowSelect={handleRowSelect} />
+            <TreeTable
+              data={filteredData} // Usar datos filtrados
+              loading={loading}
+              onRowSelect={handleRowSelect}
+              isEditing={isEditing}
+              selectedRowId={selectedRow?.id}
+              onSave={handleSave}
+              onCancel={handleCancel}
+            />
           </div>
         </Card>
       </div>
