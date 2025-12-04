@@ -1,3 +1,4 @@
+// src/App.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   ShellBar,
@@ -17,6 +18,7 @@ import TreeTable from './components/TreeTable';
 import CreateChainDialog from './components/CreateChainDialog';
 import DeleteSnapshotDialog from './components/DeleteSnapshotDialog';
 import DeleteItemDialog from './components/DeleteItemDialog';
+import { login, getInstruments } from './services/InstrumentsService';
 
 const BASE_URL = 'http://localhost:4004/api/chain/snapshot/crud';
 
@@ -25,22 +27,48 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [selectedRow, setSelectedRow] = useState(null);
 
-  // Estados para edición (de tu código)
+  // Edición inline
   const [isEditing, setIsEditing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Estados para creación (de tu compañero)
+  // Crear
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createType, setCreateType] = useState('parent');
 
-  // Estados para eliminación (de tu compañero)
+  // Eliminar
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [parentToDelete, setParentToDelete] = useState(null);
   const [deleteItemDialogOpen, setDeleteItemDialogOpen] = useState(false);
   const [childToDelete, setChildToDelete] = useState(null);
 
+  // Instruments API
+  const [sessionToken, setSessionToken] = useState(null);
+  const [underlyingOptions, setUnderlyingOptions] = useState([]);
+
+  // ============================================================
+  // INIT: login → instruments → snapshots
+  // ============================================================
   useEffect(() => {
-    loadData();
+    const init = async () => {
+      try {
+        // 1) LOGIN a la API externa
+        const token = await login('prueba@gmail.com', '12345');
+        setSessionToken(token);
+
+        // 2) Obtener Instruments (ib_conid) para el ComboBox de underlyings (PADRE)
+        if (token) {
+          const instruments = await getInstruments(token);
+          setUnderlyingOptions(instruments);
+        }
+
+        // 3) Cargar jerarquía desde tu backend
+        await loadData();
+      } catch (err) {
+        console.error('❌ Error en init App:', err);
+      }
+    };
+
+    init();
   }, []);
 
   const loadData = async () => {
@@ -55,102 +83,94 @@ export default function App() {
     }
   };
 
-  // ========= BÚSQUEDA (de tu código) =========
+  // ========= BÚSQUEDA =========
   const handleSearch = (e) => {
     setSearchTerm(e.target.value);
   };
 
-const filteredData = useMemo(() => {
-  if (!searchTerm || !String(searchTerm).trim()) return data;
+  const filteredData = useMemo(() => {
+    if (!searchTerm.trim()) return data;
 
-  const term = String(searchTerm).toLowerCase().trim();
+    const lowercasedSearch = searchTerm.toLowerCase().trim();
 
-  // Serializa recursivamente valores u objetos a string buscable
-  const serialize = (val, depth = 0) => {
-    if (val == null) return '';
-    if (depth > 6) return ''; // evitar loops y estructuras muy profundas
-    const t = typeof val;
-    if (t === 'string' || t === 'number' || t === 'boolean') {
-      return String(val).toLowerCase();
-    }
-    if (Array.isArray(val)) {
-      return val.map(v => serialize(v, depth + 1)).join(' ');
-    }
-    if (t === 'object') {
-      return Object.keys(val)
-        .sort()
-        .map(k => serialize(val[k], depth + 1))
-        .join(' ');
-    }
-    return '';
-  };
+    return data
+      .map((parent) => {
+        const searchableFields = [
+          'snapshot_id',
+          'underlying_id',
+          'option_id',
+          'hierarchyNode',
+          'strike',
+          'type',
+          'right',
+          'description'
+        ];
 
+        const parentMatches = searchableFields.some(
+          (field) =>
+            parent[field] != null &&
+            String(parent[field]).toLowerCase().includes(lowercasedSearch)
+        );
 
-  // Campos a buscar específicamente (optimización)
-  const SEARCHABLE_FIELDS = [
-  "snapshot_id",
-  "underlying_id",
-  "option_id",
-  "strike",
-  "right",
-  "expiration",
-  "bid",
-  "ask",
-  "iv",
-  "delta",
-  "gamma",
-  "theta",
-  "vega",
-  "rho",
-];
+        const matchingChildren = parent.subRows
+          ? parent.subRows.filter((child) =>
+              searchableFields.some(
+                (field) =>
+                  child[field] != null &&
+                  String(child[field]).toLowerCase().includes(lowercasedSearch)
+              )
+            )
+          : [];
 
-const matches = (obj) => {
-  if (!obj) return false;
+        if (parentMatches || matchingChildren.length > 0) {
+          return {
+            ...parent,
+            subRows: parentMatches ? parent.subRows : matchingChildren
+          };
+        }
 
-  return SEARCHABLE_FIELDS.some(field => {
-    if (obj[field] == null) return false;
-    return String(obj[field]).toLowerCase().includes(term);
-  });
-};
+        return null;
+      })
+      .filter(Boolean);
+  }, [data, searchTerm]);
 
+  // ========= MAPA snapshot_id → [underlying_id...] (para el combo del HIJO) =========
+  const childUnderlyingMap = useMemo(() => {
+    const map = {};
 
-  // Recorremos los padres y decidimos qué devolver
-  return (data || [])
-    .map(parent => {
-      // Si el padre coincide en cualquier campo -> devolver padre completo
-      if (matches(parent)) {
-        return parent;
+    data.forEach((row) => {
+      if (
+        row &&
+        row.level === 0 &&
+        row.snapshot_id != null &&
+        row.underlying_id != null
+      ) {
+        const key = String(row.snapshot_id);
+        if (!map[key]) {
+          map[key] = [];
+        }
+        if (!map[key].includes(row.underlying_id)) {
+          map[key].push(row.underlying_id);
+        }
       }
+    });
 
-      // Sino: filtrar hijos que coincidan
-      const matchingChildren = (parent.subRows || []).filter(child => matches(child));
+    return map;
+  }, [data]);
 
-      if (matchingChildren.length > 0) {
-        // Devolver el padre pero con solo los hijos que coinciden
-        return {
-          ...parent,
-          // Mantener otras propiedades del padre y sólo reemplazar subRows
-          subRows: matchingChildren
-        };
-      }
-
-      // No coincide ni padre ni hijos -> omitir
-      return null;
-    })
-    .filter(Boolean);
-}, [data, searchTerm]);
-
-
-
-  // ========= SELECCIÓN (de tu código, con ajuste para evitar seleccionar en edición) =========
+  // ========= SELECCIÓN =========
   const handleRowSelect = (row) => {
     if (!isEditing) {
-      console.log("Fila seleccionada:", row);
+      console.log('Fila seleccionada:', row);
       setSelectedRow(row);
+
+      if (row.level === 0) {
+        console.log('⚠️ Los registros padres no son editables (solo IDs/fecha)');
+      }
     }
   };
 
-  // ========= EDICIÓN (de tu código) =========
+  // ========= EDICIÓN INLINE =========
   const handleEdit = () => {
     if (selectedRow) {
       setIsEditing(true);
@@ -158,38 +178,32 @@ const matches = (obj) => {
   };
 
   const handleSave = async (updatedData) => {
-    console.log("💾 Iniciando guardado con datos:", updatedData);
+    console.log('💾 Iniciando guardado con datos:', updatedData);
 
     try {
       const success = await TreeTableService.updateRow(updatedData);
 
       if (success) {
-        console.log("✅ Guardado exitoso, recargando datos...");
+        console.log('✅ Guardado exitoso, recargando datos...');
         setIsEditing(false);
         setSelectedRow(null);
-
-        // Pequeño delay para asegurar que el backend procesó la actualización
         setTimeout(() => {
           loadData();
         }, 500);
-
       } else {
-        console.log("❌ Falló el guardado - Manteniendo modo edición");
-        // NO cerramos el modo edición para que el usuario pueda corregir
+        console.log('❌ Falló el guardado - Manteniendo modo edición');
       }
     } catch (error) {
-      console.error("💥 Error en handleSave:", error);
-      // El error ya fue mostrado por TreeTableService
+      console.error('💥 Error en handleSave:', error);
     }
   };
 
   const handleCancel = () => {
     setIsEditing(false);
-    setSelectedRow(null); // Limpiar selección
-    // No recargar datos inmediatamente, solo salir del modo edición
+    setSelectedRow(null);
   };
 
-  // ========= LLAMADA GENÉRICA AL BACK (de tu compañero) =========
+  // ========= LLAMADA GENÉRICA AL BACK (Create/Delete) =========
   const callBackend = async (processType, body) => {
     const params = new URLSearchParams({
       ProcessType: processType,
@@ -214,11 +228,13 @@ const matches = (obj) => {
     return json.value || json;
   };
 
-  // ========= OPCIONES PARA COMBOS (CREATE) (de tu compañero) =========
-  const snapshotOptions = [...new Set(data.map((r) => r.snapshot_id).filter(Boolean))];
-  const underlyingOptions = [...new Set(data.map((r) => r.underlying_id).filter(Boolean))];
+  // ========= OPCIONES PARA COMBOS (CREATE) =========
+  const snapshotOptions = [
+    ...new Set(data.map((r) => r.snapshot_id).filter(Boolean))
+  ];
+  // underlyingOptions: viene de Instruments (ib_conid) para PADRES
 
-  // ========= CREATE: ABRIR / CERRAR (de tu compañero) =========
+  // ========= CREATE: ABRIR / CERRAR =========
   const handleOpenCreateDialog = () => {
     setCreateType('parent');
     setCreateDialogOpen(true);
@@ -228,7 +244,7 @@ const matches = (obj) => {
     setCreateDialogOpen(false);
   };
 
-  // ========= CREATE: CONFIRMAR (Padre / Hijo) (de tu compañero) =========
+  // ========= CREATE: CONFIRMAR (Padre / Hijo) =========
   const handleConfirmCreate = async (payload) => {
     try {
       if (payload.createType === 'parent') {
@@ -248,7 +264,7 @@ const matches = (obj) => {
           snapshot_id: Number(item.snapshot_id),
           option_id: Number(item.option_id),
           strike: item.strike ? Number(item.strike) : undefined,
-          right: item.right, // ya viene convertido a 'C'/'P' en la modal
+          right: item.right, // 'C' / 'P' desde la modal
           expiration: item.expiration || undefined,
           bid: item.bid ? Number(item.bid) : undefined,
           ask: item.ask ? Number(item.ask) : undefined,
@@ -267,7 +283,7 @@ const matches = (obj) => {
     }
   };
 
-  // ========= DELETE: CLICK EN BOTÓN BORRAR (de tu compañero, con ajuste para no borrar en edición) =========
+  // ========= DELETE: CLICK EN BOTÓN BORRAR =========
   const handleDeleteClick = () => {
     if (!selectedRow) {
       console.warn('No hay fila seleccionada para borrar');
@@ -287,7 +303,7 @@ const matches = (obj) => {
     }
   };
 
-  // ====== HANDLERS PADRE (de tu compañero) ======
+  // ====== DELETE PADRE ======
   const handleCancelDeleteDialog = () => {
     setDeleteDialogOpen(false);
     setParentToDelete(null);
@@ -310,7 +326,7 @@ const matches = (obj) => {
     }
   };
 
-  // ====== HANDLERS HIJO (de tu compañero) ======
+  // ====== DELETE HIJO ======
   const handleCancelDeleteItemDialog = () => {
     setDeleteItemDialogOpen(false);
     setChildToDelete(null);
@@ -365,7 +381,7 @@ const matches = (obj) => {
             flexDirection: 'column'
           }}
         >
-          {/* --- BARRA DE HERRAMIENTAS DINÁMICA (de tu código, con integración de los botones de agregar/borrar) --- */}
+          {/* --- BARRA DE HERRAMIENTAS --- */}
           <FlexBox
             justifyContent={FlexBoxJustifyContent.SpaceBetween}
             alignItems={FlexBoxAlignItems.Center}
@@ -375,13 +391,16 @@ const matches = (obj) => {
             }}
           >
             <FlexBox style={{ gap: '0.5rem' }}>
-              {/* Muestra botones distintos dependiendo si estás editando o no */}
               {isEditing ? (
                 <>
                   <Button
                     icon="save"
                     design="Emphasized"
-                    onClick={() => document.getElementById('btn-save-internal')?.click()}
+                    onClick={() =>
+                      document
+                        .getElementById('btn-save-internal')
+                        ?.click()
+                    }
                     tooltip="Guardar cambios de la fila actual"
                   >
                     Guardar
@@ -396,14 +415,22 @@ const matches = (obj) => {
                 </>
               ) : (
                 <>
-                  <Button icon="add" design="Emphasized" onClick={handleOpenCreateDialog}>
+                  <Button
+                    icon="add"
+                    design="Emphasized"
+                    onClick={handleOpenCreateDialog}
+                  >
                     Agregar
                   </Button>
                   <Button
                     icon="edit"
                     disabled={!selectedRow}
                     onClick={handleEdit}
-                    tooltip={selectedRow?.level === 0 ? "Editar Snapshot" : "Editar Opción"}
+                    tooltip={
+                      selectedRow?.level === 0
+                        ? 'Editar Snapshot'
+                        : 'Editar Opción'
+                    }
                   >
                     Editar
                   </Button>
@@ -434,7 +461,7 @@ const matches = (obj) => {
           {/* --- TABLA --- */}
           <div style={{ flexGrow: 1, overflow: 'hidden' }}>
             <TreeTable
-              data={filteredData} // Usar datos filtrados
+              data={filteredData}
               loading={loading}
               onRowSelect={handleRowSelect}
               isEditing={isEditing}
@@ -454,10 +481,11 @@ const matches = (obj) => {
         createType={createType}
         setCreateType={setCreateType}
         snapshotOptions={snapshotOptions}
-        underlyingOptions={underlyingOptions}
+        underlyingOptions={underlyingOptions}      // para PADRE
+        childUnderlyingMap={childUnderlyingMap}    // para filtrar UNDERLYING en HIJO
       />
 
-      {/* ====== MODAL DELETE PADRE (2 pasos) ====== */}
+      {/* ====== MODAL DELETE PADRE ====== */}
       <DeleteSnapshotDialog
         open={deleteDialogOpen}
         parentRow={parentToDelete}
@@ -465,7 +493,7 @@ const matches = (obj) => {
         onConfirmDelete={handleConfirmDeleteParent}
       />
 
-      {/* ====== MODAL DELETE HIJO (confirmación final) ====== */}
+      {/* ====== MODAL DELETE HIJO ====== */}
       <DeleteItemDialog
         open={deleteItemDialogOpen}
         childRow={childToDelete}

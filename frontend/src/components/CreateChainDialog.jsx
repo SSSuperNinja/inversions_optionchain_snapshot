@@ -18,7 +18,8 @@ export default function CreateChainDialog({
   createType,
   setCreateType,
   snapshotOptions = [],
-  underlyingOptions = []
+  underlyingOptions = [],
+  childUnderlyingMap = {} // 👈 NUEVO: mapa snapshot_id -> [underlying_id...]
 }) {
   // ===== ESTADO LOCAL PADRE =====
   const [snapshotId, setSnapshotId] = useState('');
@@ -29,7 +30,7 @@ export default function CreateChainDialog({
 
   // ===== ESTADO LOCAL HIJO =====
   const [childStrike, setChildStrike] = useState('');
-  const [childType, setChildType] = useState('');
+  const [childType, setChildType] = useState(''); // 'C' | 'P'
   const [childExpiration, setChildExpiration] = useState('');
   const [childBid, setChildBid] = useState('');
   const [childAsk, setChildAsk] = useState('');
@@ -39,7 +40,10 @@ export default function CreateChainDialog({
   const [childTheta, setChildTheta] = useState('');
   const [childVega, setChildVega] = useState('');
 
-  // Cuando se abre la modal, reseteamos campos
+  // Lista filtrada de underlyings para el hijo
+  const [childUnderlyingList, setChildUnderlyingList] = useState([]);
+
+  // Reset cuando se abre la modal
   useEffect(() => {
     if (open) {
       setSnapshotId('');
@@ -55,11 +59,59 @@ export default function CreateChainDialog({
       setChildGamma('');
       setChildTheta('');
       setChildVega('');
+      setChildUnderlyingList([]);
     }
   }, [open]);
 
+  // Cuando cambia el tipo de creación o el snapshot del hijo,
+  // filtramos underlyings válidos para ese snapshot.
+  useEffect(() => {
+    if (createType === 'child') {
+      const key = String(snapshotId || '');
+      const list = childUnderlyingMap[key] || [];
+      setChildUnderlyingList(list);
+
+      // Si el underlying seleccionado ya no está en la lista, lo limpiamos
+      if (
+        underlyingId &&
+        !list.includes(Number(underlyingId)) &&
+        !list.includes(underlyingId)
+      ) {
+        setUnderlyingId('');
+      }
+    } else {
+      // Si estamos en modo padre, la lista filtrada no importa
+      setChildUnderlyingList([]);
+    }
+  }, [createType, snapshotId, childUnderlyingMap, underlyingId]);
+
   const handleSwitch = (e) => {
     setCreateType(e.target.checked ? 'parent' : 'child');
+  };
+
+  const extractComboValue = (e) => {
+    const d = e.detail || {};
+    const t = e.target || {};
+    return (
+      d.value ||
+      (d.item && d.item.text) ||
+      (d.selectedOption && d.selectedOption.textContent) ||
+      t.value ||
+      ''
+    );
+  };
+
+  const handleParentUnderlyingChange = (e) => {
+    setUnderlyingId(extractComboValue(e));
+  };
+
+  const handleChildSnapshotChange = (e) => {
+    const value = extractComboValue(e);
+    setSnapshotId(value);
+  };
+
+  const handleChildUnderlyingChange = (e) => {
+    setUnderlyingId(extractComboValue(e));
   };
 
   const handleConfirmClick = () => {
@@ -75,11 +127,8 @@ export default function CreateChainDialog({
       return;
     }
 
-    // HIJO
-    let right = childType.trim().toUpperCase();
-    if (right === 'CALL') right = 'C';
-    else if (right === 'PUT') right = 'P';
-    else if (right !== 'C' && right !== 'P') right = undefined;
+    // HIJO: tipo C/P viene del ComboBox
+    const right = childType === 'C' || childType === 'P' ? childType : undefined;
 
     onConfirm({
       createType: 'child',
@@ -136,11 +185,13 @@ export default function CreateChainDialog({
               </Label>
               <ComboBox
                 value={underlyingId}
-                onChange={(e) => setUnderlyingId(e.target.value)}
                 placeholder="Seleccione underlying"
+                onChange={handleParentUnderlyingChange}
+                onSelectionChange={handleParentUnderlyingChange}
+                onInput={handleParentUnderlyingChange}
               >
                 {underlyingOptions.map((u) => (
-                  <ComboBoxItem key={u} text={u} />
+                  <ComboBoxItem key={u} text={String(u)} />
                 ))}
               </ComboBox>
             </div>
@@ -152,7 +203,7 @@ export default function CreateChainDialog({
               <DatePicker
                 value={parentDate}
                 formatPattern="yyyy-MM-dd"
-                onChange={(e) => setParentDate(e.target.value || e.detail.value)}
+                onChange={(e) => setParentDate(e.detail.value || e.target.value)}
               />
             </div>
           </>
@@ -161,32 +212,42 @@ export default function CreateChainDialog({
         {/* ===== HIJO ===== */}
         {createType === 'child' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {/* Snapshot ID del hijo */}
             <div>
               <Label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>
                 Snapshot ID
               </Label>
               <ComboBox
                 value={snapshotId}
-                onChange={(e) => setSnapshotId(e.target.value)}
                 placeholder="Seleccione snapshot"
+                onChange={handleChildSnapshotChange}
+                onSelectionChange={handleChildSnapshotChange}
+                onInput={handleChildSnapshotChange}
               >
                 {snapshotOptions.map((s) => (
-                  <ComboBoxItem key={s} text={s} />
+                  <ComboBoxItem key={s} text={String(s)} />
                 ))}
               </ComboBox>
             </div>
 
+            {/* Underlying del hijo filtrado por snapshot */}
             <div>
               <Label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>
-                Underlying
+                Underlying (filtrado por snapshot)
               </Label>
               <ComboBox
                 value={underlyingId}
-                onChange={(e) => setUnderlyingId(e.target.value)}
-                placeholder="Seleccione underlying"
+                placeholder={
+                  childUnderlyingList.length
+                    ? 'Seleccione underlying'
+                    : 'No hay underlyings para este snapshot'
+                }
+                onChange={handleChildUnderlyingChange}
+                onSelectionChange={handleChildUnderlyingChange}
+                onInput={handleChildUnderlyingChange}
               >
-                {underlyingOptions.map((u) => (
-                  <ComboBoxItem key={u} text={u} />
+                {childUnderlyingList.map((u) => (
+                  <ComboBoxItem key={u} text={String(u)} />
                 ))}
               </ComboBox>
             </div>
@@ -197,11 +258,26 @@ export default function CreateChainDialog({
               placeholder="Strike"
             />
 
-            <Input
-              value={childType}
-              onInput={(e) => setChildType(e.target.value)}
-              placeholder="Tipo (Call / Put / C / P)"
-            />
+            {/* Tipo como ComboBox C/P */}
+            <div>
+              <Label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>
+                Tipo (C / P)
+              </Label>
+
+              <ComboBox
+                value={childType}
+                placeholder="Seleccione tipo"
+                onChange={(e) =>
+                  setChildType(e.detail.value || e.detail.item?.text || '')
+                }
+                onSelectionChange={(e) =>
+                  setChildType(e.detail.value || e.detail.item?.text || '')
+                }
+              >
+                <ComboBoxItem text="C" />
+                <ComboBoxItem text="P" />
+              </ComboBox>
+            </div>
 
             <div>
               <Label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>
@@ -210,33 +286,19 @@ export default function CreateChainDialog({
               <DatePicker
                 value={childExpiration}
                 formatPattern="yyyy-MM-dd"
-                onChange={(e) => setChildExpiration(e.target.value || e.detail.value)}
+                onChange={(e) =>
+                  setChildExpiration(e.detail.value || e.target.value)
+                }
               />
             </div>
 
             <Input value={childBid} onInput={(e) => setChildBid(e.target.value)} placeholder="Bid" />
             <Input value={childAsk} onInput={(e) => setChildAsk(e.target.value)} placeholder="Ask" />
             <Input value={childIv} onInput={(e) => setChildIv(e.target.value)} placeholder="IV %" />
-            <Input
-              value={childDelta}
-              onInput={(e) => setChildDelta(e.target.value)}
-              placeholder="Delta"
-            />
-            <Input
-              value={childGamma}
-              onInput={(e) => setChildGamma(e.target.value)}
-              placeholder="Gamma"
-            />
-            <Input
-              value={childTheta}
-              onInput={(e) => setChildTheta(e.target.value)}
-              placeholder="Theta"
-            />
-            <Input
-              value={childVega}
-              onInput={(e) => setChildVega(e.target.value)}
-              placeholder="Vega"
-            />
+            <Input value={childDelta} onInput={(e) => setChildDelta(e.target.value)} placeholder="Delta" />
+            <Input value={childGamma} onInput={(e) => setChildGamma(e.target.value)} placeholder="Gamma" />
+            <Input value={childTheta} onInput={(e) => setChildTheta(e.target.value)} placeholder="Theta" />
+            <Input value={childVega} onInput={(e) => setChildVega(e.target.value)} placeholder="Vega" />
           </div>
         )}
       </div>
