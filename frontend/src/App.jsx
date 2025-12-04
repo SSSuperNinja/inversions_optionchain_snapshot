@@ -1,3 +1,4 @@
+// src/App.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   ShellBar,
@@ -17,6 +18,7 @@ import TreeTable from './components/TreeTable';
 import CreateChainDialog from './components/CreateChainDialog';
 import DeleteSnapshotDialog from './components/DeleteSnapshotDialog';
 import DeleteItemDialog from './components/DeleteItemDialog';
+import { login, getInstruments } from './services/InstrumentsService';
 
 const BASE_URL = 'http://localhost:4004/api/chain/snapshot/crud';
 
@@ -25,22 +27,48 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [selectedRow, setSelectedRow] = useState(null);
 
-  // Estados para edición (de tu código)
+  // Edición inline
   const [isEditing, setIsEditing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Estados para creación (de tu compañero)
+  // Crear
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createType, setCreateType] = useState('parent');
 
-  // Estados para eliminación (de tu compañero)
+  // Eliminar
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [parentToDelete, setParentToDelete] = useState(null);
   const [deleteItemDialogOpen, setDeleteItemDialogOpen] = useState(false);
   const [childToDelete, setChildToDelete] = useState(null);
 
+  // Instruments API
+  const [sessionToken, setSessionToken] = useState(null);
+  const [underlyingOptions, setUnderlyingOptions] = useState([]);
+
+  // ============================================================
+  // INIT: login → instruments → snapshots
+  // ============================================================
   useEffect(() => {
-    loadData();
+    const init = async () => {
+      try {
+        // 1) LOGIN a la API externa
+        const token = await login('prueba@gmail.com', '12345');
+        setSessionToken(token);
+
+        // 2) Obtener Instruments (ib_conid) para el ComboBox de underlyings (PADRE)
+        if (token) {
+          const instruments = await getInstruments(token);
+          setUnderlyingOptions(instruments);
+        }
+
+        // 3) Cargar jerarquía desde tu backend
+        await loadData();
+      } catch (err) {
+        console.error('❌ Error en init App:', err);
+      }
+    };
+
+    init();
   }, []);
 
   const loadData = async () => {
@@ -55,7 +83,7 @@ export default function App() {
     }
   };
 
-  // ========= BÚSQUEDA (de tu código) =========
+  // ========= BÚSQUEDA =========
   const handleSearch = (e) => {
     setSearchTerm(e.target.value);
   };
@@ -66,24 +94,33 @@ export default function App() {
     const lowercasedSearch = searchTerm.toLowerCase().trim();
 
     return data
-      .map(parent => {
+      .map((parent) => {
         const searchableFields = [
-          'snapshot_id', 'underlying_id', 'option_id', 'hierarchyNode',
-          'strike', 'type', 'right', 'description'
+          'snapshot_id',
+          'underlying_id',
+          'option_id',
+          'hierarchyNode',
+          'strike',
+          'type',
+          'right',
+          'description'
         ];
 
-        // Buscar en campos específicos para mejor performance
-        const parentMatches = searchableFields.some(field =>
-          parent[field] != null &&
-          String(parent[field]).toLowerCase().includes(lowercasedSearch)
+        const parentMatches = searchableFields.some(
+          (field) =>
+            parent[field] != null &&
+            String(parent[field]).toLowerCase().includes(lowercasedSearch)
         );
 
-        const matchingChildren = parent.subRows ? parent.subRows.filter(child =>
-          searchableFields.some(field =>
-            child[field] != null &&
-            String(child[field]).toLowerCase().includes(lowercasedSearch)
-          )
-        ) : [];
+        const matchingChildren = parent.subRows
+          ? parent.subRows.filter((child) =>
+              searchableFields.some(
+                (field) =>
+                  child[field] != null &&
+                  String(child[field]).toLowerCase().includes(lowercasedSearch)
+              )
+            )
+          : [];
 
         if (parentMatches || matchingChildren.length > 0) {
           return {
@@ -97,20 +134,43 @@ export default function App() {
       .filter(Boolean);
   }, [data, searchTerm]);
 
-  // ========= SELECCIÓN (de tu código, con ajuste para evitar seleccionar en edición) =========
+  // ========= MAPA snapshot_id → [underlying_id...] (para el combo del HIJO) =========
+  const childUnderlyingMap = useMemo(() => {
+    const map = {};
+
+    data.forEach((row) => {
+      if (
+        row &&
+        row.level === 0 &&
+        row.snapshot_id != null &&
+        row.underlying_id != null
+      ) {
+        const key = String(row.snapshot_id);
+        if (!map[key]) {
+          map[key] = [];
+        }
+        if (!map[key].includes(row.underlying_id)) {
+          map[key].push(row.underlying_id);
+        }
+      }
+    });
+
+    return map;
+  }, [data]);
+
+  // ========= SELECCIÓN =========
   const handleRowSelect = (row) => {
     if (!isEditing) {
-      console.log("Fila seleccionada:", row);
+      console.log('Fila seleccionada:', row);
       setSelectedRow(row);
 
-      // Si es un padre, deshabilitar el botón de edición o mostrar mensaje
       if (row.level === 0) {
-        console.log("⚠️ Los registros padres no son editables");
+        console.log('⚠️ Los registros padres no son editables (solo IDs/fecha)');
       }
     }
   };
 
-  // ========= EDICIÓN (de tu código) =========
+  // ========= EDICIÓN INLINE =========
   const handleEdit = () => {
     if (selectedRow) {
       setIsEditing(true);
@@ -118,38 +178,32 @@ export default function App() {
   };
 
   const handleSave = async (updatedData) => {
-    console.log("💾 Iniciando guardado con datos:", updatedData);
+    console.log('💾 Iniciando guardado con datos:', updatedData);
 
     try {
       const success = await TreeTableService.updateRow(updatedData);
 
       if (success) {
-        console.log("✅ Guardado exitoso, recargando datos...");
+        console.log('✅ Guardado exitoso, recargando datos...');
         setIsEditing(false);
         setSelectedRow(null);
-
-        // Pequeño delay para asegurar que el backend procesó la actualización
         setTimeout(() => {
           loadData();
         }, 500);
-
       } else {
-        console.log("❌ Falló el guardado - Manteniendo modo edición");
-        // NO cerramos el modo edición para que el usuario pueda corregir
+        console.log('❌ Falló el guardado - Manteniendo modo edición');
       }
     } catch (error) {
-      console.error("💥 Error en handleSave:", error);
-      // El error ya fue mostrado por TreeTableService
+      console.error('💥 Error en handleSave:', error);
     }
   };
 
   const handleCancel = () => {
     setIsEditing(false);
-    setSelectedRow(null); // Limpiar selección
-    // No recargar datos inmediatamente, solo salir del modo edición
+    setSelectedRow(null);
   };
 
-  // ========= LLAMADA GENÉRICA AL BACK (de tu compañero) =========
+  // ========= LLAMADA GENÉRICA AL BACK (Create/Delete) =========
   const callBackend = async (processType, body) => {
     const params = new URLSearchParams({
       ProcessType: processType,
@@ -174,11 +228,13 @@ export default function App() {
     return json.value || json;
   };
 
-  // ========= OPCIONES PARA COMBOS (CREATE) (de tu compañero) =========
-  const snapshotOptions = [...new Set(data.map((r) => r.snapshot_id).filter(Boolean))];
-  const underlyingOptions = [...new Set(data.map((r) => r.underlying_id).filter(Boolean))];
+  // ========= OPCIONES PARA COMBOS (CREATE) =========
+  const snapshotOptions = [
+    ...new Set(data.map((r) => r.snapshot_id).filter(Boolean))
+  ];
+  // underlyingOptions: viene de Instruments (ib_conid) para PADRES
 
-  // ========= CREATE: ABRIR / CERRAR (de tu compañero) =========
+  // ========= CREATE: ABRIR / CERRAR =========
   const handleOpenCreateDialog = () => {
     setCreateType('parent');
     setCreateDialogOpen(true);
@@ -188,7 +244,7 @@ export default function App() {
     setCreateDialogOpen(false);
   };
 
-  // ========= CREATE: CONFIRMAR (Padre / Hijo) (de tu compañero) =========
+  // ========= CREATE: CONFIRMAR (Padre / Hijo) =========
   const handleConfirmCreate = async (payload) => {
     try {
       if (payload.createType === 'parent') {
@@ -208,7 +264,7 @@ export default function App() {
           snapshot_id: Number(item.snapshot_id),
           option_id: Number(item.option_id),
           strike: item.strike ? Number(item.strike) : undefined,
-          right: item.right, // ya viene convertido a 'C'/'P' en la modal
+          right: item.right, // 'C' / 'P' desde la modal
           expiration: item.expiration || undefined,
           bid: item.bid ? Number(item.bid) : undefined,
           ask: item.ask ? Number(item.ask) : undefined,
@@ -227,7 +283,7 @@ export default function App() {
     }
   };
 
-  // ========= DELETE: CLICK EN BOTÓN BORRAR (de tu compañero, con ajuste para no borrar en edición) =========
+  // ========= DELETE: CLICK EN BOTÓN BORRAR =========
   const handleDeleteClick = () => {
     if (!selectedRow) {
       console.warn('No hay fila seleccionada para borrar');
@@ -247,7 +303,7 @@ export default function App() {
     }
   };
 
-  // ====== HANDLERS PADRE (de tu compañero) ======
+  // ====== DELETE PADRE ======
   const handleCancelDeleteDialog = () => {
     setDeleteDialogOpen(false);
     setParentToDelete(null);
@@ -270,7 +326,7 @@ export default function App() {
     }
   };
 
-  // ====== HANDLERS HIJO (de tu compañero) ======
+  // ====== DELETE HIJO ======
   const handleCancelDeleteItemDialog = () => {
     setDeleteItemDialogOpen(false);
     setChildToDelete(null);
@@ -325,7 +381,7 @@ export default function App() {
             flexDirection: 'column'
           }}
         >
-          {/* --- BARRA DE HERRAMIENTAS DINÁMICA (de tu código, con integración de los botones de agregar/borrar) --- */}
+          {/* --- BARRA DE HERRAMIENTAS --- */}
           <FlexBox
             justifyContent={FlexBoxJustifyContent.SpaceBetween}
             alignItems={FlexBoxAlignItems.Center}
@@ -335,13 +391,16 @@ export default function App() {
             }}
           >
             <FlexBox style={{ gap: '0.5rem' }}>
-              {/* Muestra botones distintos dependiendo si estás editando o no */}
               {isEditing ? (
                 <>
                   <Button
                     icon="save"
                     design="Emphasized"
-                    onClick={() => document.getElementById('btn-save-internal')?.click()}
+                    onClick={() =>
+                      document
+                        .getElementById('btn-save-internal')
+                        ?.click()
+                    }
                     tooltip="Guardar cambios de la fila actual"
                   >
                     Guardar
@@ -356,14 +415,22 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  <Button icon="add" design="Emphasized" onClick={handleOpenCreateDialog}>
+                  <Button
+                    icon="add"
+                    design="Emphasized"
+                    onClick={handleOpenCreateDialog}
+                  >
                     Agregar
                   </Button>
                   <Button
                     icon="edit"
                     disabled={!selectedRow}
                     onClick={handleEdit}
-                    tooltip={selectedRow?.level === 0 ? "Editar Snapshot" : "Editar Opción"}
+                    tooltip={
+                      selectedRow?.level === 0
+                        ? 'Editar Snapshot'
+                        : 'Editar Opción'
+                    }
                   >
                     Editar
                   </Button>
@@ -394,7 +461,7 @@ export default function App() {
           {/* --- TABLA --- */}
           <div style={{ flexGrow: 1, overflow: 'hidden' }}>
             <TreeTable
-              data={filteredData} // Usar datos filtrados
+              data={filteredData}
               loading={loading}
               onRowSelect={handleRowSelect}
               isEditing={isEditing}
@@ -414,10 +481,11 @@ export default function App() {
         createType={createType}
         setCreateType={setCreateType}
         snapshotOptions={snapshotOptions}
-        underlyingOptions={underlyingOptions}
+        underlyingOptions={underlyingOptions}      // para PADRE
+        childUnderlyingMap={childUnderlyingMap}    // para filtrar UNDERLYING en HIJO
       />
 
-      {/* ====== MODAL DELETE PADRE (2 pasos) ====== */}
+      {/* ====== MODAL DELETE PADRE ====== */}
       <DeleteSnapshotDialog
         open={deleteDialogOpen}
         parentRow={parentToDelete}
@@ -425,7 +493,7 @@ export default function App() {
         onConfirmDelete={handleConfirmDeleteParent}
       />
 
-      {/* ====== MODAL DELETE HIJO (confirmación final) ====== */}
+      {/* ====== MODAL DELETE HIJO ====== */}
       <DeleteItemDialog
         open={deleteItemDialogOpen}
         childRow={childToDelete}
