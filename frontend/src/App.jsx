@@ -9,7 +9,9 @@ import {
   Input,
   FlexBox,
   FlexBoxJustifyContent,
-  FlexBoxAlignItems
+  FlexBoxAlignItems,
+  Switch,
+  Label
 } from '@ui5/webcomponents-react';
 import '@ui5/webcomponents-icons/dist/AllIcons.js';
 
@@ -26,6 +28,7 @@ export default function App() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedRow, setSelectedRow] = useState(null);
+  const [dbServer, setDbServer] = useState('MongoDB');
 
   // Edición inline
   const [isEditing, setIsEditing] = useState(false);
@@ -71,10 +74,16 @@ export default function App() {
     init();
   }, []);
 
-  const loadData = async () => {
+  useEffect(() => {
+    loadData();
+  }, [dbServer]);
+
+const loadData = async () => {
     setLoading(true);
     try {
-      const result = await TreeTableService.getHierarchy();
+      console.log(`🔄 Cargando datos de: ${dbServer}`);
+      // Pasamos el dbServer actual al servicio
+      const result = await TreeTableService.getHierarchy(dbServer);
       setData(result);
     } catch (err) {
       console.error(err);
@@ -83,6 +92,15 @@ export default function App() {
     }
   };
 
+  // Handler para el Switch
+  const handleDbSwitch = (e) => {
+    const isAzure = e.target.checked;
+    setDbServer(isAzure ? 'AzureCosmos' : 'MongoDB');
+    // Limpiamos selección al cambiar de contexto
+    setSelectedRow(null);
+    setIsEditing(false);
+  };
+  
   // ========= BÚSQUEDA =========
   const handleSearch = (e) => {
     setSearchTerm(e.target.value);
@@ -181,7 +199,7 @@ export default function App() {
     console.log('💾 Iniciando guardado con datos:', updatedData);
 
     try {
-      const success = await TreeTableService.updateRow(updatedData);
+      const success = await TreeTableService.updateRow(updatedData, dbServer);
 
       if (success) {
         console.log('✅ Guardado exitoso, recargando datos...');
@@ -204,12 +222,16 @@ export default function App() {
   };
 
   // ========= LLAMADA GENÉRICA AL BACK (Create/Delete) =========
-  const callBackend = async (processType, body) => {
+const callBackend = async (processType, body) => {
     const params = new URLSearchParams({
       ProcessType: processType,
-      dbServer: 'MongoDB',
+      dbServer: dbServer, // <--- USAR ESTADO, NO HARDCODE
       User: 'Admin'
     });
+
+    if (body.snapshot_id) params.append('snapshot_id', body.snapshot_id);
+    if (body.underlying_id) params.append('underlying_id', body.underlying_id);
+    if (body.item_id) params.append('id', body.item_id); // Para DeleteItemAzure
 
     const url = `${BASE_URL}?${params.toString()}`;
 
@@ -227,6 +249,8 @@ export default function App() {
     const json = await resp.json();
     return json.value || json;
   };
+
+
 
   // ========= OPCIONES PARA COMBOS (CREATE) =========
   const snapshotOptions = [
@@ -445,6 +469,18 @@ export default function App() {
                   </Button>
                 </>
               )}
+            </FlexBox>
+
+            <FlexBox alignItems={FlexBoxAlignItems.Center} style={{ gap: '0.5rem' }}>
+                <Label>MongoDB</Label>
+                <Switch 
+                    design="Graphical" 
+                    onChange={handleDbSwitch} 
+                    checked={dbServer === 'AzureCosmos'}
+                    disabled={isEditing} // Bloquear cambio mientras editas para evitar caos
+                    tooltip="Cambiar entre Mongo Local y Azure Cloud"
+                />
+                <Label>Azure</Label>
             </FlexBox>
 
             <div style={{ width: '300px' }}>

@@ -462,7 +462,7 @@ async function deleteSnapshotItemAzure(id) {
 
 // --- FUNCIÓN GET ALL SNAPSHOTS MEJORADA (FUSIÓN) ---
 async function getAllSnapshots() {
-    a
+
     try {
         console.time('QueryTime'); 
 

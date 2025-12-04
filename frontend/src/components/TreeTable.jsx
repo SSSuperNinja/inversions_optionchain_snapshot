@@ -35,25 +35,20 @@ const UnderlyingComboBox = React.memo(({ value, onChange }) => {
         if (currentInstrument) {
           setSelectedText(currentInstrument.text);
         } else if (value) {
-          setSelectedText(`ID: ${value}`); // Fallback si no se encuentra
+          setSelectedText(`ID: ${value}`); 
         }
       } catch (error) {
         console.error('Error loading instruments:', error);
-        // Usar mocks en caso de error
-        setInstruments([
-          { id: 999999999, text: "AAPL (999999999)" },
-          { id: 888888888, text: "TSLA (888888888)" }
-        ]);
+        setInstruments([]);
       } finally {
         setLoading(false);
       }
     };
 
     loadInstruments();
-  }, [value]); // Agregar value como dependencia
+  }, [value]);
 
   const handleChange = (e) => {
-    // SOLUCIÓN SIMPLIFICADA: Usar el texto directamente y buscar el ID
     const selectedText = e.target.value;
     console.log('UnderlyingComboBox - texto seleccionado:', selectedText);
     
@@ -62,36 +57,40 @@ const UnderlyingComboBox = React.memo(({ value, onChange }) => {
       return;
     }
 
-    // Buscar el instrument por el texto
     const selectedInstrument = instruments.find(instr => instr.text === selectedText);
     if (selectedInstrument && onChange) {
-      console.log('UnderlyingComboBox - instrumento encontrado:', selectedInstrument.id);
       onChange(selectedInstrument.id);
-    } else {
-      console.warn('UnderlyingComboBox - instrumento no encontrado para texto:', selectedText);
     }
   };
+
+  // ⚡ OPTIMIZACIÓN CRÍTICA:
+  // Si la lista es gigante, cortamos a 100 items para no matar la memoria.
+  // En un caso real de producción, el filtrado debería ser en el backend.
+  const visibleInstruments = instruments.slice(0, 100); 
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
         <ComboBox
-          value={String(selectedText || '')} // ← CONVERTIR A STRING
+          value={String(selectedText || '')}
           onChange={handleChange}
           style={{ width: '90%', textAlign: 'center' }}
-          placeholder={loading ? "Cargando instruments..." : "Seleccionar instrumento..."}
+          placeholder={loading ? "Cargando..." : "Seleccionar instrumento..."}
           loading={loading}
+          filter="Contains" // Esto ayuda a filtrar visualmente
         >
-        {instruments.map(instrument => (
+        {visibleInstruments.map(instrument => (
           <ComboBoxItem 
-            key={`instrument-${instrument.id}`} // KEY ÚNICO Y EXPLÍCITO
+            key={`instrument-${instrument.id}`} 
             text={instrument.text}
           />
         ))}
+        {instruments.length > 100 && (
+            <ComboBoxItem text={`... y ${instruments.length - 100} más (usa el buscador)`} />
+        )}
       </ComboBox>
     </div>
   );
 });
-
 // ------------------- Combo para elegir Snapshot (valores únicos sacados del data de la tabla) -------------------
 const SnapshotComboBox = React.memo(({ value, onChange, snapshotOptions, clearOption }) => {
   const [selectedText, setSelectedText] = useState('');
