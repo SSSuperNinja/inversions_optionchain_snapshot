@@ -6,47 +6,39 @@ class OptionChainController extends cds.ApplicationService {
         
         this.on('crud', async (req) => {
             try {
-                // 1. Accedemos a los parámetros de la URL (Query Params)
                 const queryParams = req.http?.req?.query || {};
                 const bodyData = req.data || {};
 
-                // === DEBUG COMPLETO - AGREGA ESTAS LÍNEAS ===
-                console.log("=== 🐛 DEBUG INICIO ===");
-                console.log("🔍 Query Params objeto completo:", queryParams);
-                console.log("🔍 Keys de Query Params:", Object.keys(queryParams));
-                console.log("🔍 Body Data:", bodyData);
-                console.log("🔍 req.data completo:", req.data);
-                console.log("🔍 URL completa:", req.http?.req?.url);
-                console.log("=== 🐛 DEBUG FIN ===");
-                // === FIN DEBUG ===
+                // 1. Extraer ID principal (prioridad a params)
+                const id = queryParams.id || 
+                           queryParams.snapshot_id || 
+                           queryParams.option_id || 
+                           bodyData.id;
 
-                // 2. EXTRAER ID de todas las fuentes posibles
-                const id = queryParams.id || queryParams.snapshot_id || queryParams.option_id;
+                console.log("🔑 ID detectado en Controller:", id);
 
-                console.log("🔑 ID extraído después de debug:", id);
-
-                // 3. Mezclamos Query Params + Body Params
+                // 2. MEZCLAR TODO (URL + BODY)
+                // Esto es vital para que Delete funcione con params
                 const requestData = {
-                    // Parámetros de Control (siempre de query params)
+                    ...queryParams, // <-- Metemos todo lo que venga en la URL (snapshot_id, etc.)
+                    ...bodyData,    // <-- Metemos el body (si hay)
+                    
+                    // Aseguramos campos críticos
                     ProcessType: queryParams.ProcessType,
                     User: queryParams.User,
                     dbServer: queryParams.dbServer,
-                    
-                    // ID del documento
                     id: id,
                     
-                    // Datos del body
+                    // Mantenemos compatibilidad con lógica anterior
                     data: bodyData.data || bodyData
                 };
 
-                console.log(`📡 Controller: Acción [${requestData.ProcessType}] para ID [${requestData.id}]`);
-
-                // 4. Validar que tengamos el ID para operaciones de update
+                // 3. Validación de ID para Updates
                 if ((requestData.ProcessType === 'UpdateSnapshot' || requestData.ProcessType === 'UpdateItem') && !requestData.id) {
                     throw new Error(`Falta el ID para ${requestData.ProcessType}.`);
                 }
 
-                // 5. Delegamos al Servicio con los datos estructurados
+                // 4. Delegar al servicio
                 const enrichedReq = { ...req, data: requestData };
                 return await processCrud(enrichedReq);
 
